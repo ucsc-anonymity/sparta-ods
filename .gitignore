@@ -1,0 +1,9 @@
+.vscode
+app
+.config_*
+*.so
+*.so
+
+*.o
+Enclave_u.*
+Enclave_t.*
