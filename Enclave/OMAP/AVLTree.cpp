@@ -1,21 +1,26 @@
 #include "AVLTree.h"
 #include "Enclave.h"
 
-void check_memory2(string text) {
+void check_memory2(string text)
+{
     unsigned int required = 0x4f00000; // adapt to native uint
     char *mem = NULL;
-    while (mem == NULL) {
-        mem = (char*) malloc(required);
-        if ((required -= 8) < 0xFFF) {
-            if (mem) free(mem);
+    while (mem == NULL)
+    {
+        mem = (char *)malloc(required);
+        if ((required -= 8) < 0xFFF)
+        {
+            if (mem)
+                free(mem);
             printf("Cannot allocate enough memory\n");
             return;
         }
     }
 
     free(mem);
-    mem = (char*) malloc(required);
-    if (mem == NULL) {
+    mem = (char *)malloc(required);
+    if (mem == NULL)
+    {
         printf("Cannot enough allocate memory\n");
         return;
     }
@@ -23,29 +28,33 @@ void check_memory2(string text) {
     free(mem);
 }
 
-AVLTree::AVLTree(long long maxSize, bytes<Key> secretkey, bool isEmptyMap) {
+AVLTree::AVLTree(long long maxSize, bytes<Key> secretkey, bool isEmptyMap)
+{
     oram = new ORAM(maxSize, secretkey, false, isEmptyMap);
-    int depth = (int) (ceil(log2(maxSize)) - 1) + 1;
-    maxOfRandom = (long long) (pow(2, depth));
+    int depth = (int)(ceil(log2(maxSize)) - 1) + 1;
+    maxOfRandom = (long long)(pow(2, depth));
     times.push_back(vector<double>());
     times.push_back(vector<double>());
     times.push_back(vector<double>());
     times.push_back(vector<double>());
 }
 
-AVLTree::~AVLTree() {
+AVLTree::~AVLTree()
+{
     delete oram;
 }
 
 // A utility function to get maximum of two integers
 
-int AVLTree::max(int a, int b) {
+int AVLTree::max(int a, int b)
+{
     int res = CTcmp(a, b);
     return CTeq(res, 1) ? a : b;
 }
 
-Node* AVLTree::newNode(Bid omapKey, string value) {
-    Node* node = new Node();
+Node *AVLTree::newNode(Bid omapKey, vector<byte_t> value)
+{
+    Node *node = new Node();
     node->key = omapKey;
     node->index = index++;
     std::fill(node->value.begin(), node->value.end(), 0);
@@ -60,15 +69,32 @@ Node* AVLTree::newNode(Bid omapKey, string value) {
     return node;
 }
 
+Node *AVLTree::newNode(Bid omapKey)
+{
+    Node *node = new Node();
+    node->key = omapKey;
+    node->index = index++;
+    std::fill(node->value.begin(), node->value.end(), 0);
+    node->leftID = 0;
+    node->leftPos = -1;
+    node->rightPos = -1;
+    node->rightID = 0;
+    node->pos = 0;
+    node->isDummy = false;
+    node->height = 1; // new node is initially added at leaf
+    return node;
+}
+
 // A utility function to right rotate subtree rooted with leftNode
 // See the diagram given above.
 
-void AVLTree::rotate(Node* node, Node* oppositeNode, int targetHeight, bool right, bool dummyOp) {
-    Node* T2 = nullptr;
-    Node* tmpDummyNode = new Node();
+void AVLTree::rotate(Node *node, Node *oppositeNode, int targetHeight, bool right, bool dummyOp)
+{
+    Node *T2 = nullptr;
+    Node *tmpDummyNode = new Node();
     tmpDummyNode->isDummy = true;
-    T2 = newNode(0, "");
-    Node* tmp = nullptr;
+    T2 = newNode(0);
+    Node *tmp = nullptr;
     bool left = !right;
     unsigned long long newPos = RandomPath();
     unsigned long long dumyPos;
@@ -79,7 +105,6 @@ void AVLTree::rotate(Node* node, Node* oppositeNode, int targetHeight, bool righ
     bool cond2 = !dummyOp && right;
     bool cond3 = !dummyOp && left;
 
-
     T2->height = Node::conditional_select(0, T2->height, cond1);
 
     Bid readKey = dummy;
@@ -88,7 +113,7 @@ void AVLTree::rotate(Node* node, Node* oppositeNode, int targetHeight, bool righ
 
     bool isDummy = !(!cond1 && (cond2 || cond3));
 
-    tmp = readWriteCacheNode(readKey, tmpDummyNode, true, isDummy); //READ
+    tmp = readWriteCacheNode(readKey, tmpDummyNode, true, isDummy); // READ
 
     Node::conditional_assign(T2, tmp, !cond1 && (cond2 || cond3));
     delete tmp;
@@ -106,14 +131,13 @@ void AVLTree::rotate(Node* node, Node* oppositeNode, int targetHeight, bool righ
     node->rightID = Bid::conditional_select(T2->key, node->rightID, !cond1 && cond2);
     node->rightPos = Bid::conditional_select(T2->pos, node->rightPos, !cond1 && cond2);
 
-
-    // Update heights    
+    // Update heights
     int curNodeHeight = max(T2->height, targetHeight) + 1;
     node->height = Node::conditional_select(curNodeHeight, node->height, !dummyOp);
 
     int oppositeOppositeHeight = 0;
     unsigned long long newOppositePos = RandomPath();
-    Node* oppositeOppositeNode = nullptr;
+    Node *oppositeOppositeNode = nullptr;
 
     cond1 = !dummyOp && right && !oppositeNode->leftID.isZero();
     cond2 = !dummyOp && left && !oppositeNode->rightID.isZero();
@@ -124,11 +148,10 @@ void AVLTree::rotate(Node* node, Node* oppositeNode, int targetHeight, bool righ
 
     isDummy = !(cond1 || cond2);
 
-    oppositeOppositeNode = readWriteCacheNode(readKey, tmpDummyNode, true, isDummy); //READ
+    oppositeOppositeNode = readWriteCacheNode(readKey, tmpDummyNode, true, isDummy); // READ
 
     oppositeOppositeHeight = Node::conditional_select(oppositeOppositeNode->height, oppositeOppositeHeight, cond1 || cond2);
     delete oppositeOppositeNode;
-
 
     int maxValue = max(oppositeOppositeHeight, curNodeHeight) + 1;
     oppositeNode->height = Node::conditional_select(maxValue, oppositeNode->height, !dummyOp);
@@ -137,30 +160,39 @@ void AVLTree::rotate(Node* node, Node* oppositeNode, int targetHeight, bool righ
     delete tmpDummyNode;
 }
 
-void AVLTree::rotate2(Node* node, Node* oppositeNode, int targetHeight, bool right, bool dummyOp) {
-    Node* T2 = nullptr;
-    Node* tmpDummyNode = new Node();
+void AVLTree::rotate2(Node *node, Node *oppositeNode, int targetHeight, bool right, bool dummyOp)
+{
+    Node *T2 = nullptr;
+    Node *tmpDummyNode = new Node();
     tmpDummyNode->isDummy = true;
-    T2 = newNode(0, "");
-    Node* tmp = nullptr;
+    T2 = newNode(0);
+    Node *tmp = nullptr;
     bool left = !right;
     unsigned long long newPos = RandomPath();
     unsigned long long dumyPos;
     Bid dummy;
     dummy.setValue(oram->nextDummyCounter++);
 
-    if (!dummyOp && ((right && oppositeNode->rightID == 0) || (left && oppositeNode->leftID == 0))) {
+    if (!dummyOp && ((right && oppositeNode->rightID == 0) || (left && oppositeNode->leftID == 0)))
+    {
         T2->height = 0;
         readWriteCacheNode(dummy, tmpDummyNode, true, true);
-    } else if (!dummyOp && right) {
+    }
+    else if (!dummyOp && right)
+    {
         T2 = readWriteCacheNode(oppositeNode->rightID, tmpDummyNode, true, false);
-    } else if (!dummyOp && left) {
+    }
+    else if (!dummyOp && left)
+    {
         T2 = readWriteCacheNode(oppositeNode->leftID, tmpDummyNode, true, false);
-    } else {
+    }
+    else
+    {
         readWriteCacheNode(dummy, tmpDummyNode, true, true);
     }
     // Perform rotation
-    if (!dummyOp && right) {
+    if (!dummyOp && right)
+    {
         oppositeNode->rightID = node->key;
         oppositeNode->rightPos = node->pos;
         oppositeNode->leftID = oppositeNode->leftID;
@@ -169,7 +201,9 @@ void AVLTree::rotate2(Node* node, Node* oppositeNode, int targetHeight, bool rig
         node->rightPos = node->rightPos;
         node->leftID = T2->key;
         node->leftPos = T2->pos;
-    } else if (!dummyOp) {
+    }
+    else if (!dummyOp)
+    {
         oppositeNode->leftID = node->key;
         oppositeNode->leftPos = node->pos;
         oppositeNode->rightID = oppositeNode->rightID;
@@ -178,7 +212,9 @@ void AVLTree::rotate2(Node* node, Node* oppositeNode, int targetHeight, bool rig
         node->rightPos = T2->pos;
         node->leftID = node->leftID;
         node->leftPos = node->leftPos;
-    } else {
+    }
+    else
+    {
         oppositeNode->leftID = oppositeNode->leftID;
         oppositeNode->leftPos = oppositeNode->leftPos;
         oppositeNode->rightID = oppositeNode->rightID;
@@ -188,47 +224,59 @@ void AVLTree::rotate2(Node* node, Node* oppositeNode, int targetHeight, bool rig
         node->leftID = node->leftID;
         node->leftPos = node->leftPos;
     }
-    // Update heights    
+    // Update heights
     int curNodeHeight = max(T2->height, targetHeight) + 1;
-    if (!dummyOp) {
+    if (!dummyOp)
+    {
         node->height = curNodeHeight;
-    } else {
+    }
+    else
+    {
         node->height = node->height;
     }
 
     int oppositeOppositeHeight = 0;
     unsigned long long newOppositePos = RandomPath();
-    Node* oppositeOppositeNode = nullptr;
-    if (!dummyOp && right && oppositeNode->leftID != 0) {
+    Node *oppositeOppositeNode = nullptr;
+    if (!dummyOp && right && oppositeNode->leftID != 0)
+    {
         oppositeOppositeNode = readWriteCacheNode(oppositeNode->leftID, tmpDummyNode, true, false);
         oppositeOppositeHeight = oppositeOppositeNode->height;
         delete oppositeOppositeNode;
-    } else if (!dummyOp && left && oppositeNode->rightID != 0) {
+    }
+    else if (!dummyOp && left && oppositeNode->rightID != 0)
+    {
         oppositeOppositeNode = readWriteCacheNode(oppositeNode->rightID, tmpDummyNode, true, false);
         oppositeOppositeHeight = oppositeOppositeNode->height;
         delete oppositeOppositeNode;
-    } else {
+    }
+    else
+    {
         oppositeOppositeNode = readWriteCacheNode(dummy, tmpDummyNode, true, true);
         oppositeOppositeHeight = oppositeOppositeHeight;
         delete oppositeOppositeNode;
     }
     int maxValue = max(oppositeOppositeHeight, curNodeHeight) + 1;
-    if (!dummyOp) {
+    if (!dummyOp)
+    {
         oppositeNode->height = maxValue;
-    } else {
+    }
+    else
+    {
         oppositeNode->height = oppositeNode->height;
     }
     delete T2;
     delete tmpDummyNode;
 }
 
-Bid AVLTree::insert(Bid rootKey, unsigned long long& rootPos, Bid omapKey, string value, int& height, Bid lastID, bool isDummyIns) {
+Bid AVLTree::insert(Bid rootKey, unsigned long long &rootPos, Bid omapKey, vector<byte_t> value, int &height, Bid lastID, bool isDummyIns)
+{
     totheight++;
     unsigned long long rndPos = RandomPath();
-    std::array< byte_t, 16> tmpval;
+    std::array<byte_t, sizeof(UserRecord)> tmpval;
     std::fill(tmpval.begin(), tmpval.end(), 0);
     std::copy(value.begin(), value.end(), tmpval.begin());
-    Node* tmpDummyNode = new Node();
+    Node *tmpDummyNode = new Node();
     tmpDummyNode->isDummy = true;
     Bid dummy;
     Bid retKey;
@@ -236,24 +284,25 @@ Bid AVLTree::insert(Bid rootKey, unsigned long long& rootPos, Bid omapKey, strin
     bool remainerIsDummy = false;
     dummy.setValue(oram->nextDummyCounter++);
 
-    if (isDummyIns && CTeq(CTcmp(totheight, oram->depth * 1.44), 1)) {
-        Node* nnode = newNode(omapKey, value);
+    if (isDummyIns && CTeq(CTcmp(totheight, oram->depth * 1.44), 1))
+    {
+        Node *nnode = newNode(omapKey, value);
         nnode->pos = RandomPath();
         height = Node::conditional_select(nnode->height, height, !exist);
         rootPos = Node::conditional_select(nnode->pos, rootPos, !exist);
 
-        Node* previousNode = readWriteCacheNode(omapKey, tmpDummyNode, true, !exist);
+        Node *previousNode = readWriteCacheNode(omapKey, tmpDummyNode, true, !exist);
 
-        Node* wrtNode = Node::clone(previousNode);
+        Node *wrtNode = Node::clone(previousNode);
         Node::conditional_assign(wrtNode, nnode, !exist);
 
         unsigned long long lastPos = nnode->pos;
         lastPos = Node::conditional_select(previousNode->pos, lastPos, exist);
 
-        Node* tmp = oram->ReadWrite(omapKey, wrtNode, lastPos, nnode->pos, false, false, false);
+        Node *tmp = oram->ReadWrite(omapKey, wrtNode, lastPos, nnode->pos, false, false, false);
 
         wrtNode->pos = nnode->pos;
-        Node* tmp2 = readWriteCacheNode(omapKey, wrtNode, false, false);
+        Node *tmp2 = readWriteCacheNode(omapKey, wrtNode, false, false);
         Bid retKey = lastID;
         retKey = Bid::conditional_select(nnode->key, retKey, !exist);
         delete tmp;
@@ -271,25 +320,24 @@ Bid AVLTree::insert(Bid rootKey, unsigned long long& rootPos, Bid omapKey, strin
     cond1 = !isDummyIns && !rootKey.isZero();
     remainerIsDummy = !cond1;
 
-    Node* node = nullptr;
+    Node *node = nullptr;
 
     Bid initReadKey = dummy;
     initReadKey = Bid::conditional_select(rootKey, initReadKey, !remainerIsDummy);
     isDummy = remainerIsDummy;
-    node = oram->ReadWrite(initReadKey, tmpDummyNode, rootPos, rootPos, true, isDummy, tmpval, Bid::CTeq(Bid::CTcmp(rootKey, omapKey), 0), true); //READ
-    Node* tmp2 = readWriteCacheNode(initReadKey, node, false, isDummy);
+    node = oram->ReadWrite(initReadKey, tmpDummyNode, rootPos, rootPos, true, isDummy, tmpval, Bid::CTeq(Bid::CTcmp(rootKey, omapKey), 0), true); // READ
+    Node *tmp2 = readWriteCacheNode(initReadKey, node, false, isDummy);
     delete tmp2;
 
     int balance = -1;
     int leftHeight = -1;
     int rightHeight = -1;
-    Node* leftNode = new Node();
+    Node *leftNode = new Node();
     bool leftNodeisNull = true;
-    Node* rightNode = new Node();
+    Node *rightNode = new Node();
     bool rightNodeisNull = true;
-    std::array< byte_t, 16> garbage;
+    std::array<byte_t, 16> garbage;
     bool childDirisLeft = false;
-
 
     unsigned long long newRLPos = RandomPath();
 
@@ -321,7 +369,6 @@ Bid AVLTree::insert(Bid rootKey, unsigned long long& rootPos, Bid omapKey, strin
     exist = Node::conditional_select(true, exist, cond1 && cond4);
     Bid resValBid = insert(insRootKey, insRootPos, omapKey, value, insHeight, insLastID, isDummy);
 
-
     node->leftID = Bid::conditional_select(resValBid, node->leftID, cond1 && cond2);
     node->rightID = Bid::conditional_select(resValBid, node->rightID, cond1 && cond3);
 
@@ -346,7 +393,7 @@ Bid AVLTree::insert(Bid rootKey, unsigned long long& rootPos, Bid omapKey, strin
 
     isDummy = !((cond1 && cond2 && (!cond2_1)) || (cond1 && cond3 && (!cond3_1)));
 
-    Node* tmp = oram->ReadWrite(readKey, tmpDummyNode, tmpreadPos, tmpreadPos, true, isDummy, true); //READ
+    Node *tmp = oram->ReadWrite(readKey, tmpDummyNode, tmpreadPos, tmpreadPos, true, isDummy, true); // READ
     Node::conditional_assign(rightNode, tmp, cond1 && cond2 && (!cond2_1));
     Node::conditional_assign(leftNode, tmp, cond1 && cond3 && (!cond3_1));
 
@@ -372,7 +419,8 @@ Bid AVLTree::insert(Bid rootKey, unsigned long long& rootPos, Bid omapKey, strin
     std::fill(garbage.begin(), garbage.end(), 0);
     std::copy(value.begin(), value.end(), garbage.begin());
 
-    for (int i = 0; i < 16; i++) {
+    for (int i = 0; i < 16; i++)
+    {
         node->value[i] = Bid::conditional_select(garbage[i], node->value[i], cond1 && cond4);
     }
 
@@ -416,7 +464,7 @@ Bid AVLTree::insert(Bid rootKey, unsigned long long& rootPos, Bid omapKey, strin
 
     isDummy = !(((cond1 || (!cond1 && !cond2 && cond3)) && leftNodeisNull) || (((!cond1 && cond2) || (!cond1 & !cond2 && !cond3 && cond4)) && rightNodeisNull));
 
-    tmp = readWriteCacheNode(leftRightReadKey, tmpDummyNode, true, isDummy); //READ
+    tmp = readWriteCacheNode(leftRightReadKey, tmpDummyNode, true, isDummy); // READ
     Node::conditional_assign(leftNode, tmp, (cond1 || (!cond1 && !cond2 && cond3)) && leftNodeisNull);
     Node::conditional_assign(rightNode, tmp, ((!cond1 && cond2) || (!cond1 & !cond2 && !cond3 && cond4)) && rightNodeisNull);
     delete tmp;
@@ -436,10 +484,10 @@ Bid AVLTree::insert(Bid rootKey, unsigned long long& rootPos, Bid omapKey, strin
 
     isDummy = !((!cond1 && !cond2 && cond3) || (!cond1 && !cond2 && !cond3 && cond4));
 
-    tmp = readWriteCacheNode(leftRightNodeReadKey, tmpDummyNode, true, isDummy); //READ
+    tmp = readWriteCacheNode(leftRightNodeReadKey, tmpDummyNode, true, isDummy); // READ
 
-    Node* leftRightNode = new Node();
-    Node* rightLeftNode = new Node();
+    Node *leftRightNode = new Node();
+    Node *rightLeftNode = new Node();
 
     Node::conditional_assign(leftRightNode, tmp, (!cond1 && !cond2 && cond3));
     Node::conditional_assign(rightLeftNode, tmp, (!cond1 && !cond2 && !cond3 && cond4));
@@ -455,10 +503,10 @@ Bid AVLTree::insert(Bid rootKey, unsigned long long& rootPos, Bid omapKey, strin
 
     isDummy = !(((!cond1 && !cond2 && cond3) && !leftNode->leftID.isZero()) || ((!cond1 && !cond2 && !cond3 && cond4) && !rightNode->rightID.isZero()));
 
-    tmp = readWriteCacheNode(leftLeftRightRightKey, tmpDummyNode, true, isDummy); //READ
+    tmp = readWriteCacheNode(leftLeftRightRightKey, tmpDummyNode, true, isDummy); // READ
 
-    Node* leftLeftNode = new Node();
-    Node* rightRightNode = new Node();
+    Node *leftLeftNode = new Node();
+    Node *rightRightNode = new Node();
 
     Node::conditional_assign(leftLeftNode, tmp, (!cond1 && !cond2 && cond3) && !leftNode->leftID.isZero());
     Node::conditional_assign(rightRightNode, tmp, (!cond1 && !cond2 && !cond3 && cond4) && !rightNode->rightID.isZero());
@@ -473,8 +521,8 @@ Bid AVLTree::insert(Bid rootKey, unsigned long long& rootPos, Bid omapKey, strin
     // Rotate
     //------------------------------------------------
 
-    Node* targetRotateNode = Node::clone(tmpDummyNode);
-    Node* oppositeRotateNode = Node::clone(tmpDummyNode);
+    Node *targetRotateNode = Node::clone(tmpDummyNode);
+    Node *oppositeRotateNode = Node::clone(tmpDummyNode);
 
     Node::conditional_assign(targetRotateNode, leftNode, !cond1 && !cond2 && cond3);
     Node::conditional_assign(targetRotateNode, rightNode, !cond1 && !cond2 && !cond3 && cond4);
@@ -501,7 +549,6 @@ Bid AVLTree::insert(Bid rootKey, unsigned long long& rootPos, Bid omapKey, strin
 
     delete oppositeRotateNode;
 
-
     unsigned long long newP = RandomPath();
     unsigned long long oldLeftRightPos = RandomPath();
     oldLeftRightPos = Node::conditional_select(leftNode->pos, oldLeftRightPos, !cond1 && !cond2 && cond3);
@@ -514,12 +561,12 @@ Bid AVLTree::insert(Bid rootKey, unsigned long long& rootPos, Bid omapKey, strin
     firstRotateWriteKey = Bid::conditional_select(leftNode->key, firstRotateWriteKey, !cond1 && !cond2 && cond3);
     firstRotateWriteKey = Bid::conditional_select(rightNode->key, firstRotateWriteKey, !cond1 && !cond2 && !cond3 && cond4);
 
-    Node* firstRotateWriteNode = Node::clone(tmpDummyNode);
+    Node *firstRotateWriteNode = Node::clone(tmpDummyNode);
     Node::conditional_assign(firstRotateWriteNode, leftNode, !cond1 && !cond2 && cond3);
     Node::conditional_assign(firstRotateWriteNode, rightNode, !cond1 && !cond2 && !cond3 && cond4);
 
     isDummy = !((!cond1 && !cond2 && cond3) || (!cond1 && !cond2 && !cond3 && cond4));
-    tmp = readWriteCacheNode(firstRotateWriteKey, firstRotateWriteNode, false, isDummy); //WRITE
+    tmp = readWriteCacheNode(firstRotateWriteKey, firstRotateWriteNode, false, isDummy); // WRITE
     delete tmp;
     delete firstRotateWriteNode;
 
@@ -531,7 +578,6 @@ Bid AVLTree::insert(Bid rootKey, unsigned long long& rootPos, Bid omapKey, strin
 
     node->rightID = Bid::conditional_select(rightLeftNode->key, node->rightID, !cond1 && !cond2 && !cond3 && cond4);
     node->rightPos = Node::conditional_select(rightLeftNode->pos, node->rightPos, !cond1 && !cond2 && !cond3 && cond4);
-
 
     //------------------------------------------------
     // Second Rotate
@@ -590,11 +636,10 @@ Bid AVLTree::insert(Bid rootKey, unsigned long long& rootPos, Bid omapKey, strin
     finalFirstWriteKey = Bid::conditional_select(leftNode->key, finalFirstWriteKey, (!cond1 && !cond2 && cond3) || (!cond1 && !cond2 && !cond3 && !cond4 && doubleRotation && childDirisLeft));
     finalFirstWriteKey = Bid::conditional_select(rightNode->key, finalFirstWriteKey, (!cond1 && !cond2 && !cond3 && cond4) || (!cond1 && !cond2 && !cond3 && !cond4 && doubleRotation && !childDirisLeft));
 
-    Node* finalFirstWriteNode = Node::clone(tmpDummyNode);
+    Node *finalFirstWriteNode = Node::clone(tmpDummyNode);
     Node::conditional_assign(finalFirstWriteNode, node, cond1 || (!cond1 && cond2));
     Node::conditional_assign(finalFirstWriteNode, leftNode, (!cond1 && !cond2 && cond3) || (!cond1 && !cond2 && !cond3 && !cond4 && doubleRotation && childDirisLeft));
     Node::conditional_assign(finalFirstWriteNode, rightNode, (!cond1 && !cond2 && !cond3 && cond4) || (!cond1 && !cond2 && !cond3 && !cond4 && doubleRotation && !childDirisLeft));
-
 
     unsigned long long finalFirstWritePos = dumyPos;
     finalFirstWritePos = Node::conditional_select(node->pos, finalFirstWritePos, cond1 || (!cond1 && cond2));
@@ -609,11 +654,10 @@ Bid AVLTree::insert(Bid rootKey, unsigned long long& rootPos, Bid omapKey, strin
 
     isDummy = !cond1 && !cond2 && !cond3 && !cond4 && !doubleRotation;
 
-    tmp = oram->ReadWrite(finalFirstWriteKey, finalFirstWriteNode, finalFirstWritePos, finalFirstWriteNewPos, false, isDummy, false); //WRITE        
+    tmp = oram->ReadWrite(finalFirstWriteKey, finalFirstWriteNode, finalFirstWritePos, finalFirstWriteNewPos, false, isDummy, false); // WRITE
 
     delete tmp;
     delete finalFirstWriteNode;
-
 
     node->pos = Node::conditional_select(newP, node->pos, cond1 || (!cond1 && cond2));
     leftNode->rightPos = Node::conditional_select(newP, leftNode->rightPos, cond1);
@@ -623,21 +667,19 @@ Bid AVLTree::insert(Bid rootKey, unsigned long long& rootPos, Bid omapKey, strin
     node->leftPos = Node::conditional_select(newP, node->leftPos, !cond1 && !cond2 && !cond3 && !cond4 && doubleRotation && childDirisLeft);
     node->rightPos = Node::conditional_select(newP, node->rightPos, !cond1 && !cond2 && !cond3 && !cond4 && doubleRotation && !childDirisLeft);
 
-
-
     Bid finalFirstWriteCacheWriteKey = dummy;
     finalFirstWriteCacheWriteKey = Bid::conditional_select(node->key, finalFirstWriteCacheWriteKey, cond1 || (!cond1 && cond2));
     finalFirstWriteCacheWriteKey = Bid::conditional_select(node->leftID, finalFirstWriteCacheWriteKey, !cond1 && !cond2 && !cond3 && !cond4 && doubleRotation && childDirisLeft);
     finalFirstWriteCacheWriteKey = Bid::conditional_select(node->rightID, finalFirstWriteCacheWriteKey, !cond1 && !cond2 && !cond3 && !cond4 && doubleRotation && !childDirisLeft);
 
-    Node* finalFirstWriteCacheWrite = Node::clone(tmpDummyNode);
+    Node *finalFirstWriteCacheWrite = Node::clone(tmpDummyNode);
     Node::conditional_assign(finalFirstWriteCacheWrite, node, cond1 || (!cond1 && cond2));
     Node::conditional_assign(finalFirstWriteCacheWrite, leftNode, !cond1 && !cond2 && !cond3 && !cond4 && doubleRotation && childDirisLeft);
     Node::conditional_assign(finalFirstWriteCacheWrite, rightNode, !cond1 && !cond2 && !cond3 && !cond4 && doubleRotation && !childDirisLeft);
 
     isDummy = (!cond1 && !cond2 && cond3) || (!cond1 && !cond2 && !cond3 && cond4) || (!cond1 && !cond2 && !cond3 && !cond4 && !doubleRotation);
 
-    tmp = readWriteCacheNode(finalFirstWriteCacheWriteKey, finalFirstWriteCacheWrite, false, isDummy); //WRITE
+    tmp = readWriteCacheNode(finalFirstWriteCacheWriteKey, finalFirstWriteCacheWrite, false, isDummy); // WRITE
 
     delete tmp;
     delete finalFirstWriteCacheWrite;
@@ -657,7 +699,6 @@ Bid AVLTree::insert(Bid rootKey, unsigned long long& rootPos, Bid omapKey, strin
     finalWriteKey = Bid::conditional_select(node->key, finalWriteKey, !cond1 && !cond2 && !cond3 && cond4);
     finalWriteKey = Bid::conditional_select(node->key, finalWriteKey, !cond1 && !cond2 && !cond3 && !cond4 && cond5);
 
-
     unsigned long long finalWritePos = dumyPos;
     finalWritePos = Node::conditional_select(leftNode->pos, finalWritePos, cond1);
     finalWritePos = Node::conditional_select(rightNode->pos, finalWritePos, !cond1 && cond2);
@@ -665,24 +706,21 @@ Bid AVLTree::insert(Bid rootKey, unsigned long long& rootPos, Bid omapKey, strin
     finalWritePos = Node::conditional_select(node->pos, finalWritePos, !cond1 && !cond2 && !cond3 && cond4);
     finalWritePos = Node::conditional_select(node->pos, finalWritePos, !cond1 && !cond2 && !cond3 && !cond4 && cond5);
 
-
     unsigned long long finalWriteNewPos = dumyPos;
     finalWriteNewPos = Node::conditional_select(newP, finalWriteNewPos, cond1 || (!cond1 && cond2) || (!cond1 && !cond2 && cond3) || (!cond1 && !cond2 && !cond3 && cond4) || (!cond1 && !cond2 && !cond3 && !cond4 && cond5));
 
-
     isDummy = !(cond1 || cond2 || cond3 || cond4 || cond5);
 
-    Node* finalWriteNode = Node::clone(tmpDummyNode);
+    Node *finalWriteNode = Node::clone(tmpDummyNode);
     Node::conditional_assign(finalWriteNode, leftNode, cond1);
     Node::conditional_assign(finalWriteNode, rightNode, !cond1 && cond2);
     Node::conditional_assign(finalWriteNode, node, !cond1 && !cond2 && cond3);
     Node::conditional_assign(finalWriteNode, node, !cond1 && !cond2 && !cond3 && cond4);
     Node::conditional_assign(finalWriteNode, node, !cond1 && !cond2 && !cond3 && !cond4 && cond5);
 
-    tmp = oram->ReadWrite(finalWriteKey, finalWriteNode, finalWritePos, finalWriteNewPos, false, isDummy, false); //WRITE
+    tmp = oram->ReadWrite(finalWriteKey, finalWriteNode, finalWritePos, finalWriteNewPos, false, isDummy, false); // WRITE
     delete tmp;
     delete finalWriteNode;
-
 
     leftNode->pos = Node::conditional_select(newP, leftNode->pos, cond1);
     rightNode->pos = Node::conditional_select(newP, rightNode->pos, !cond1 && cond2);
@@ -693,21 +731,20 @@ Bid AVLTree::insert(Bid rootKey, unsigned long long& rootPos, Bid omapKey, strin
     finalCacheWriteKey = Bid::conditional_select(rightNode->key, finalCacheWriteKey, !cond1 && cond2);
     finalCacheWriteKey = Bid::conditional_select(node->key, finalCacheWriteKey, (!cond1 && !cond2 && cond3) || (!cond1 && !cond2 && !cond3 && cond4) || (!cond1 && !cond2 && !cond3 && !cond4 && cond5));
 
-    Node* finalCacheWriteNode = Node::clone(tmpDummyNode);
+    Node *finalCacheWriteNode = Node::clone(tmpDummyNode);
     Node::conditional_assign(finalCacheWriteNode, leftNode, cond1);
     Node::conditional_assign(finalCacheWriteNode, rightNode, !cond1 && cond2);
     Node::conditional_assign(finalCacheWriteNode, node, (!cond1 && !cond2 && cond3) || (!cond1 && !cond2 && !cond3 && cond4) || (!cond1 && !cond2 && !cond3 && !cond4 && cond5));
 
     isDummy = !cond1 && !cond2 && !cond3 && !cond4 && !cond5;
 
-    tmp = readWriteCacheNode(finalCacheWriteKey, finalCacheWriteNode, false, isDummy); //WRITE             
+    tmp = readWriteCacheNode(finalCacheWriteKey, finalCacheWriteNode, false, isDummy); // WRITE
 
     delete tmp;
     delete finalCacheWriteNode;
 
     leftRightNode->rightPos = Node::conditional_select(newP, leftRightNode->rightPos, !cond1 && !cond2 && cond3);
     rightLeftNode->leftPos = Node::conditional_select(newP, rightLeftNode->leftPos, !cond1 && !cond2 && !cond3 && cond4);
-
 
     finalCacheWriteKey = dummy;
     finalCacheWriteKey = Bid::conditional_select(leftRightNode->key, finalCacheWriteKey, (!cond1 && !cond2 && cond3));
@@ -719,19 +756,16 @@ Bid AVLTree::insert(Bid rootKey, unsigned long long& rootPos, Bid omapKey, strin
 
     isDummy = !((!cond1 && !cond2 && cond3) || (!cond1 && !cond2 && !cond3 && cond4));
 
-    tmp = readWriteCacheNode(finalCacheWriteKey, finalCacheWriteNode, false, isDummy); //WRITE             
+    tmp = readWriteCacheNode(finalCacheWriteKey, finalCacheWriteNode, false, isDummy); // WRITE
 
     delete tmp;
     delete finalCacheWriteNode;
-
-
 
     rootPos = Node::conditional_select(leftNode->pos, rootPos, cond1);
     rootPos = Node::conditional_select(rightNode->pos, rootPos, !cond1 && cond2);
     rootPos = Node::conditional_select(leftRightNode->pos, rootPos, !cond1 && !cond2 && cond3);
     rootPos = Node::conditional_select(rightLeftNode->pos, rootPos, !cond1 && !cond2 && !cond3 && cond4);
     rootPos = Node::conditional_select(node->pos, rootPos, !cond1 && !cond2 && !cond3 && !cond4 && cond5);
-
 
     retKey = Bid::conditional_select(leftNode->key, retKey, cond1);
     retKey = Bid::conditional_select(rightNode->key, retKey, !cond1 && cond2);
@@ -744,18 +778,20 @@ Bid AVLTree::insert(Bid rootKey, unsigned long long& rootPos, Bid omapKey, strin
     height = Node::conditional_select(leftRightNode->height, height, !cond1 && !cond2 && cond3);
     height = Node::conditional_select(rightLeftNode->height, height, !cond1 && !cond2 && !cond3 && cond4);
 
-    if (totheight == 1) {
+    if (totheight == 1)
+    {
         isDummy = !doubleRotation;
         unsigned long long finalPos = RandomPath();
-        Node* finalNode = readWriteCacheNode(retKey, tmpDummyNode, true, isDummy);
-        tmp = oram->ReadWrite(finalNode->key, finalNode, finalNode->pos, finalPos, false, isDummy, false); //WRITE
+        Node *finalNode = readWriteCacheNode(retKey, tmpDummyNode, true, isDummy);
+        tmp = oram->ReadWrite(finalNode->key, finalNode, finalNode->pos, finalPos, false, isDummy, false); // WRITE
         rootPos = Node::conditional_select(finalPos, rootPos, doubleRotation);
         height = Node::conditional_select(finalNode->height, height, doubleRotation);
         delete tmp;
         delete finalNode;
     }
 
-    if (logTime) {
+    if (logTime)
+    {
         ocall_stop_timer(&t, totheight + 100000);
         times[0][times[0].size() - 1] += t;
     }
@@ -767,17 +803,17 @@ Bid AVLTree::insert(Bid rootKey, unsigned long long& rootPos, Bid omapKey, strin
     delete leftRightNode;
     delete rightLeftNode;
     return retKey;
-
 }
 
-Bid AVLTree::insert2(Bid rootKey, unsigned long long& rootPos, Bid omapKey, string value, int& height, Bid lastID, bool isDummyIns) {
+Bid AVLTree::insert2(Bid rootKey, unsigned long long &rootPos, Bid omapKey, vector<byte_t> value, int &height, Bid lastID, bool isDummyIns)
+{
     totheight++;
     unsigned long long rndPos = RandomPath();
     double t;
-    std::array< byte_t, 16> tmpval;
+    std::array<byte_t, sizeof(MessageNode)> tmpval;
     std::fill(tmpval.begin(), tmpval.end(), 0);
     std::copy(value.begin(), value.end(), tmpval.begin());
-    Node* tmpDummyNode = new Node();
+    Node *tmpDummyNode = new Node();
     tmpDummyNode->isDummy = true;
     Bid dummy;
     Bid retKey;
@@ -785,19 +821,23 @@ Bid AVLTree::insert2(Bid rootKey, unsigned long long& rootPos, Bid omapKey, stri
     bool remainerIsDummy = false;
     dummy.setValue(oram->nextDummyCounter++);
 
-    if (isDummyIns && !CTeq(CTcmp(totheight, (int) ((float) oram->depth * 1.44)), -1)) {
+    if (isDummyIns && !CTeq(CTcmp(totheight, (int)((float)oram->depth * 1.44)), -1))
+    {
         Bid resKey = lastID;
-        if (!exist) {
-            Node* nnode = newNode(omapKey, value);
+        if (!exist)
+        {
+            Node *nnode = newNode(omapKey, value);
             nnode->pos = RandomPath();
             height = nnode->height;
             rootPos = nnode->pos;
             oram->ReadWrite(omapKey, nnode, nnode->pos, nnode->pos, false, false, false);
             readWriteCacheNode(omapKey, nnode, false, false);
             resKey = nnode->key;
-        } else {
+        }
+        else
+        {
             unsigned long long newP = RandomPath();
-            Node* previousNode = readWriteCacheNode(omapKey, tmpDummyNode, true, false);
+            Node *previousNode = readWriteCacheNode(omapKey, tmpDummyNode, true, false);
             oram->ReadWrite(omapKey, previousNode, previousNode->pos, newP, false, false, false);
             previousNode->pos = newP;
             readWriteCacheNode(omapKey, previousNode, false, false);
@@ -806,48 +846,57 @@ Bid AVLTree::insert2(Bid rootKey, unsigned long long& rootPos, Bid omapKey, stri
     }
     /* 1. Perform the normal BST rotation */
 
-    if (!isDummyIns && !rootKey.isZero()) {
+    if (!isDummyIns && !rootKey.isZero())
+    {
         remainerIsDummy = false;
-    } else {
+    }
+    else
+    {
         remainerIsDummy = true;
     }
 
-    Node* node = nullptr;
-    if (remainerIsDummy) {
-        node = oram->ReadWrite(dummy, tmpDummyNode, rootPos, rootPos, true, true, tmpval, Bid::CTeq(Bid::CTcmp(rootKey, omapKey), 0), true); //READ
+    Node *node = nullptr;
+    if (remainerIsDummy)
+    {
+        node = oram->ReadWrite(dummy, tmpDummyNode, rootPos, rootPos, true, true, tmpval, Bid::CTeq(Bid::CTcmp(rootKey, omapKey), 0), true); // READ
         readWriteCacheNode(dummy, tmpDummyNode, false, true);
-    } else {
-        node = oram->ReadWrite(rootKey, tmpDummyNode, rootPos, rootPos, true, false, tmpval, Bid::CTeq(Bid::CTcmp(rootKey, omapKey), 0), true); //READ
+    }
+    else
+    {
+        node = oram->ReadWrite(rootKey, tmpDummyNode, rootPos, rootPos, true, false, tmpval, Bid::CTeq(Bid::CTcmp(rootKey, omapKey), 0), true); // READ
         readWriteCacheNode(rootKey, node, false, false);
     }
-
 
     int balance = -1;
     int leftHeight = -1;
     int rightHeight = -1;
-    Node* leftNode = new Node();
+    Node *leftNode = new Node();
     bool leftNodeisNull = true;
-    Node* rightNode = new Node();
+    Node *rightNode = new Node();
     bool rightNodeisNull = true;
-    std::array< byte_t, 16> garbage;
+    std::array<byte_t, 16> garbage;
     bool childDirisLeft = false;
-
 
     unsigned long long newRLPos = RandomPath();
 
-    if (!remainerIsDummy) {
-        if (omapKey < node->key) {
+    if (!remainerIsDummy)
+    {
+        if (omapKey < node->key)
+        {
             node->leftID = insert(node->leftID, node->leftPos, omapKey, value, leftHeight, dummy, false);
-            if (!node->rightID.isZero()) {
-                Node* rightNode = oram->ReadWrite(node->rightID, tmpDummyNode, node->rightPos, node->rightPos, true, false, true); //READ
+            if (!node->rightID.isZero())
+            {
+                Node *rightNode = oram->ReadWrite(node->rightID, tmpDummyNode, node->rightPos, node->rightPos, true, false, true); // READ
                 readWriteCacheNode(node->rightID, rightNode, false, false);
                 rightNodeisNull = false;
                 rightHeight = rightNode->height;
                 std::fill(garbage.begin(), garbage.end(), 0);
                 std::copy(value.begin(), value.end(), garbage.begin());
                 remainerIsDummy = false;
-            } else {
-                Node* dummyright = oram->ReadWrite(dummy, tmpDummyNode, newRLPos, newRLPos, true, true, true);
+            }
+            else
+            {
+                Node *dummyright = oram->ReadWrite(dummy, tmpDummyNode, newRLPos, newRLPos, true, true, true);
                 readWriteCacheNode(dummy, dummyright, false, true);
                 rightHeight = 0;
                 std::fill(garbage.begin(), garbage.end(), 0);
@@ -856,19 +905,23 @@ Bid AVLTree::insert2(Bid rootKey, unsigned long long& rootPos, Bid omapKey, stri
             }
             childDirisLeft = true;
             totheight--;
-
-        } else if (omapKey > node->key) {
+        }
+        else if (omapKey > node->key)
+        {
             node->rightID = insert(node->rightID, node->rightPos, omapKey, value, rightHeight, dummy, false);
-            if (!node->leftID.isZero()) {
-                Node* leftNode = oram->ReadWrite(node->leftID, tmpDummyNode, node->leftPos, node->leftPos, true, false, true); //READ
+            if (!node->leftID.isZero())
+            {
+                Node *leftNode = oram->ReadWrite(node->leftID, tmpDummyNode, node->leftPos, node->leftPos, true, false, true); // READ
                 readWriteCacheNode(node->leftID, leftNode, false, false);
                 leftNodeisNull = false;
                 leftHeight = leftNode->height;
                 std::fill(garbage.begin(), garbage.end(), 0);
                 std::copy(value.begin(), value.end(), garbage.begin());
                 remainerIsDummy = false;
-            } else {
-                Node* dummyleft = oram->ReadWrite(dummy, tmpDummyNode, newRLPos, newRLPos, true, true, true);
+            }
+            else
+            {
+                Node *dummyleft = oram->ReadWrite(dummy, tmpDummyNode, newRLPos, newRLPos, true, true, true);
                 readWriteCacheNode(dummy, dummyleft, false, true);
                 leftHeight = 0;
                 std::fill(garbage.begin(), garbage.end(), 0);
@@ -877,11 +930,12 @@ Bid AVLTree::insert2(Bid rootKey, unsigned long long& rootPos, Bid omapKey, stri
             }
             childDirisLeft = false;
             totheight--;
-
-        } else {
+        }
+        else
+        {
             exist = true;
             Bid resValBid = insert(rootKey, rootPos, omapKey, value, height, node->key, true);
-            Node* dummyleft = oram->ReadWrite(dummy, tmpDummyNode, newRLPos, newRLPos, true, true, true);
+            Node *dummyleft = oram->ReadWrite(dummy, tmpDummyNode, newRLPos, newRLPos, true, true, true);
             totheight--;
             node = readWriteCacheNode(node->key, tmpDummyNode, true, false);
             rootPos = node->pos;
@@ -889,9 +943,11 @@ Bid AVLTree::insert2(Bid rootKey, unsigned long long& rootPos, Bid omapKey, stri
             retKey = node->key;
             remainerIsDummy = true;
         }
-    } else {
+    }
+    else
+    {
         Bid resValBid = insert(rootKey, rootPos, omapKey, value, height, node->key, true);
-        Node* dummyleft = oram->ReadWrite(dummy, tmpDummyNode, newRLPos, newRLPos, true, true, true);
+        Node *dummyleft = oram->ReadWrite(dummy, tmpDummyNode, newRLPos, newRLPos, true, true, true);
         totheight--;
         readWriteCacheNode(dummy, tmpDummyNode, true, true);
         std::fill(garbage.begin(), garbage.end(), 0);
@@ -900,53 +956,66 @@ Bid AVLTree::insert2(Bid rootKey, unsigned long long& rootPos, Bid omapKey, stri
         remainerIsDummy = remainerIsDummy;
     }
     /* 2. Update height of this ancestor node */
-    if (remainerIsDummy) {
+    if (remainerIsDummy)
+    {
         max(leftHeight, rightHeight) + 1;
         node->height = node->height;
         height = height;
-    } else {
+    }
+    else
+    {
         node->height = max(leftHeight, rightHeight) + 1;
         height = node->height;
     }
     /* 3. Get the balance factor of this ancestor node to check whether this node became unbalanced */
-    if (remainerIsDummy) {
+    if (remainerIsDummy)
+    {
         balance = balance;
-    } else {
+    }
+    else
+    {
         balance = leftHeight - rightHeight;
     }
 
     ocall_start_timer(totheight + 100000);
 
-    if (remainerIsDummy == false && CTeq(CTcmp(balance, 1), 1) && omapKey < node->leftID) {
+    if (remainerIsDummy == false && CTeq(CTcmp(balance, 1), 1) && omapKey < node->leftID)
+    {
         //                printf("log1\n");
         // Left Left Case
-        if (leftNodeisNull) {
+        if (leftNodeisNull)
+        {
             delete leftNode;
-            leftNode = readWriteCacheNode(node->leftID, tmpDummyNode, true, false); //READ
+            leftNode = readWriteCacheNode(node->leftID, tmpDummyNode, true, false); // READ
             leftNodeisNull = false;
             node->leftPos = leftNode->pos;
-        } else {
-            readWriteCacheNode(dummy, tmpDummyNode, true, true); //WRITE            
+        }
+        else
+        {
+            readWriteCacheNode(dummy, tmpDummyNode, true, true); // WRITE
         }
 
         //------------------------DUMMY---------------------------
-        Node* leftRightNode = readWriteCacheNode(dummy, tmpDummyNode, true, true);
+        Node *leftRightNode = readWriteCacheNode(dummy, tmpDummyNode, true, true);
         leftRightNode->rightPos = leftRightNode->rightPos;
 
         int leftLeftHeight = 0;
-        if (leftNode->leftID != 0) {
-            Node* leftLeftNode = readWriteCacheNode(dummy, tmpDummyNode, true, true);
+        if (leftNode->leftID != 0)
+        {
+            Node *leftLeftNode = readWriteCacheNode(dummy, tmpDummyNode, true, true);
             leftLeftHeight = leftLeftHeight;
             delete leftLeftNode;
-        } else {
-            Node* leftLeftNode = readWriteCacheNode(dummy, tmpDummyNode, true, true);
+        }
+        else
+        {
+            Node *leftLeftNode = readWriteCacheNode(dummy, tmpDummyNode, true, true);
             leftLeftHeight = leftLeftHeight;
             delete leftLeftNode;
         }
         rotate(tmpDummyNode, tmpDummyNode, leftLeftHeight, false, true);
 
         RandomPath();
-        readWriteCacheNode(dummy, tmpDummyNode, false, true); //WRITE
+        readWriteCacheNode(dummy, tmpDummyNode, false, true); // WRITE
 
         node->rightID = node->rightID;
         node->rightPos = node->rightPos;
@@ -956,51 +1025,58 @@ Bid AVLTree::insert2(Bid rootKey, unsigned long long& rootPos, Bid omapKey, stri
 
         rotate(node, leftNode, rightHeight, true);
 
-
         unsigned long long newP = RandomPath();
-        oram->ReadWrite(node->key, node, node->pos, newP, false, false, false); //WRITE
+        oram->ReadWrite(node->key, node, node->pos, newP, false, false, false); // WRITE
         node->pos = newP;
         leftNode->rightPos = newP;
-        readWriteCacheNode(node->key, node, false, false); //WRITE
+        readWriteCacheNode(node->key, node, false, false); // WRITE
 
         newP = RandomPath();
-        oram->ReadWrite(leftNode->key, leftNode, leftNode->pos, newP, false, false, false); //WRITE
+        oram->ReadWrite(leftNode->key, leftNode, leftNode->pos, newP, false, false, false); // WRITE
         leftNode->pos = newP;
-        readWriteCacheNode(leftNode->key, leftNode, false, false); //WRITE             
+        readWriteCacheNode(leftNode->key, leftNode, false, false); // WRITE
         readWriteCacheNode(dummy, tmpDummyNode, true, true);
 
         rootPos = leftNode->pos;
         height = leftNode->height;
         retKey = leftNode->key;
-    } else if (remainerIsDummy == false && CTeq(CTcmp(balance, -1), -1) && omapKey > node->rightID) {
+    }
+    else if (remainerIsDummy == false && CTeq(CTcmp(balance, -1), -1) && omapKey > node->rightID)
+    {
         //                printf("log2\n");
         // Right Right Case
-        if (rightNodeisNull) {
+        if (rightNodeisNull)
+        {
             delete rightNode;
-            rightNode = readWriteCacheNode(node->rightID, tmpDummyNode, true, false); //READ
+            rightNode = readWriteCacheNode(node->rightID, tmpDummyNode, true, false); // READ
             rightNodeisNull = false;
             node->rightPos = rightNode->pos;
-        } else {
+        }
+        else
+        {
             readWriteCacheNode(dummy, tmpDummyNode, true, true);
         }
 
         //------------------------DUMMY---------------------------
-        Node* leftRightNode = readWriteCacheNode(dummy, tmpDummyNode, true, true);
+        Node *leftRightNode = readWriteCacheNode(dummy, tmpDummyNode, true, true);
 
         int leftLeftHeight = 0;
-        if (rightNode->leftID != 0) {
-            Node* leftLeftNode = readWriteCacheNode(dummy, tmpDummyNode, true, true);
+        if (rightNode->leftID != 0)
+        {
+            Node *leftLeftNode = readWriteCacheNode(dummy, tmpDummyNode, true, true);
             leftLeftHeight = leftLeftHeight;
             delete leftLeftNode;
-        } else {
-            Node* leftLeftNode = readWriteCacheNode(dummy, tmpDummyNode, true, true);
+        }
+        else
+        {
+            Node *leftLeftNode = readWriteCacheNode(dummy, tmpDummyNode, true, true);
             leftLeftHeight = leftLeftHeight;
             delete leftLeftNode;
         }
         rotate(tmpDummyNode, tmpDummyNode, leftLeftHeight, false, true);
 
         RandomPath();
-        readWriteCacheNode(dummy, tmpDummyNode, false, true); //WRITE
+        readWriteCacheNode(dummy, tmpDummyNode, false, true); // WRITE
 
         node->rightID = node->rightID;
         node->rightPos = node->rightPos;
@@ -1011,42 +1087,49 @@ Bid AVLTree::insert2(Bid rootKey, unsigned long long& rootPos, Bid omapKey, stri
         rotate(node, rightNode, leftHeight, false);
 
         unsigned long long newP = RandomPath();
-        oram->ReadWrite(node->key, node, node->pos, newP, false, false, false); //WRITE
+        oram->ReadWrite(node->key, node, node->pos, newP, false, false, false); // WRITE
         node->pos = newP;
-        readWriteCacheNode(node->key, node, false, false); //WRITE
+        readWriteCacheNode(node->key, node, false, false); // WRITE
 
         rightNode->leftPos = newP;
         newP = RandomPath();
-        oram->ReadWrite(rightNode->key, rightNode, rightNode->pos, newP, false, false, false); //WRITE
+        oram->ReadWrite(rightNode->key, rightNode, rightNode->pos, newP, false, false, false); // WRITE
         rightNode->pos = newP;
-        readWriteCacheNode(rightNode->key, rightNode, false, false); //WRITE
+        readWriteCacheNode(rightNode->key, rightNode, false, false); // WRITE
         readWriteCacheNode(dummy, tmpDummyNode, true, true);
 
         rootPos = rightNode->pos;
         height = rightNode->height;
         retKey = rightNode->key;
-    } else if (remainerIsDummy == false && CTeq(CTcmp(balance, 1), 1) && omapKey > node->leftID) {
+    }
+    else if (remainerIsDummy == false && CTeq(CTcmp(balance, 1), 1) && omapKey > node->leftID)
+    {
         //                printf("log3\n");
-        // Left Right Case        
-        if (leftNodeisNull) {
+        // Left Right Case
+        if (leftNodeisNull)
+        {
             delete leftNode;
-            leftNode = readWriteCacheNode(node->leftID, tmpDummyNode, true, false); //READ
+            leftNode = readWriteCacheNode(node->leftID, tmpDummyNode, true, false); // READ
             leftNodeisNull = false;
             node->leftPos = leftNode->pos;
-        } else {
+        }
+        else
+        {
             readWriteCacheNode(dummy, tmpDummyNode, true, true);
         }
 
-
-        Node* leftRightNode = readWriteCacheNode(leftNode->rightID, tmpDummyNode, true, false); //READ
+        Node *leftRightNode = readWriteCacheNode(leftNode->rightID, tmpDummyNode, true, false); // READ
 
         int leftLeftHeight = 0;
-        if (leftNode->leftID != 0) {
-            Node* leftLeftNode = readWriteCacheNode(leftNode->leftID, tmpDummyNode, true, false); //READ
+        if (leftNode->leftID != 0)
+        {
+            Node *leftLeftNode = readWriteCacheNode(leftNode->leftID, tmpDummyNode, true, false); // READ
             leftLeftHeight = leftLeftNode->height;
             delete leftLeftNode;
-        } else {
-            Node* leftLeftNode = readWriteCacheNode(dummy, tmpDummyNode, true, true);
+        }
+        else
+        {
+            Node *leftLeftNode = readWriteCacheNode(dummy, tmpDummyNode, true, true);
             leftLeftHeight = leftLeftHeight;
             delete leftLeftNode;
         }
@@ -1056,7 +1139,7 @@ Bid AVLTree::insert2(Bid rootKey, unsigned long long& rootPos, Bid omapKey, stri
         unsigned long long newP = RandomPath();
         unsigned long long oldLeftRightPos = leftNode->pos;
         leftNode->pos = newP;
-        readWriteCacheNode(leftNode->key, leftNode, false, false); //WRITE
+        readWriteCacheNode(leftNode->key, leftNode, false, false); // WRITE
         leftRightNode->leftPos = newP;
 
         node->leftID = leftRightNode->key;
@@ -1064,41 +1147,49 @@ Bid AVLTree::insert2(Bid rootKey, unsigned long long& rootPos, Bid omapKey, stri
 
         rotate(node, leftRightNode, rightHeight, true);
 
-        oram->ReadWrite(leftNode->key, leftNode, oldLeftRightPos, leftNode->pos, false, false, false); //WRITE
+        oram->ReadWrite(leftNode->key, leftNode, oldLeftRightPos, leftNode->pos, false, false, false); // WRITE
         newP = RandomPath();
-        oram->ReadWrite(node->key, node, node->pos, newP, false, false, false); //WRITE
+        oram->ReadWrite(node->key, node, node->pos, newP, false, false, false); // WRITE
         node->pos = newP;
-        readWriteCacheNode(node->key, node, false, false); //WRITE
+        readWriteCacheNode(node->key, node, false, false); // WRITE
         leftRightNode->rightPos = newP;
-        readWriteCacheNode(leftRightNode->key, leftRightNode, false, false); //WRITE
+        readWriteCacheNode(leftRightNode->key, leftRightNode, false, false); // WRITE
         doubleRotation = true;
         readWriteCacheNode(dummy, tmpDummyNode, true, true);
 
         rootPos = leftRightNode->pos;
         height = leftRightNode->height;
         retKey = leftRightNode->key;
-    } else if (remainerIsDummy == false && CTeq(CTcmp(balance, -1), -1) && omapKey < node->rightID) {
+    }
+    else if (remainerIsDummy == false && CTeq(CTcmp(balance, -1), -1) && omapKey < node->rightID)
+    {
         //                printf("log4\n");
         //  Right-Left Case
-        if (rightNodeisNull) {
+        if (rightNodeisNull)
+        {
             delete rightNode;
-            rightNode = readWriteCacheNode(node->rightID, tmpDummyNode, true, false); //READ
+            rightNode = readWriteCacheNode(node->rightID, tmpDummyNode, true, false); // READ
             rightNodeisNull = false;
             node->rightPos = rightNode->pos;
-        } else {
+        }
+        else
+        {
             readWriteCacheNode(dummy, tmpDummyNode, true, true);
             node->rightPos = node->rightPos;
         }
 
-        Node* rightLeftNode = readWriteCacheNode(rightNode->leftID, tmpDummyNode, true, false); //READ
+        Node *rightLeftNode = readWriteCacheNode(rightNode->leftID, tmpDummyNode, true, false); // READ
 
         int rightRightHeight = 0;
-        if (rightNode->rightID != 0) {
-            Node* rightRightNode = readWriteCacheNode(rightNode->rightID, tmpDummyNode, true, false); //READ
+        if (rightNode->rightID != 0)
+        {
+            Node *rightRightNode = readWriteCacheNode(rightNode->rightID, tmpDummyNode, true, false); // READ
             rightRightHeight = rightRightNode->height;
             delete rightRightNode;
-        } else {
-            Node* rightRightNode = readWriteCacheNode(dummy, tmpDummyNode, true, true);
+        }
+        else
+        {
+            Node *rightRightNode = readWriteCacheNode(dummy, tmpDummyNode, true, true);
             rightRightHeight = rightRightHeight;
             delete rightRightNode;
         }
@@ -1108,7 +1199,7 @@ Bid AVLTree::insert2(Bid rootKey, unsigned long long& rootPos, Bid omapKey, stri
         unsigned long long newP = RandomPath();
         unsigned long long oldLeftRightPos = rightNode->pos;
         rightNode->pos = newP;
-        readWriteCacheNode(rightNode->key, rightNode, false, false); //WRITE
+        readWriteCacheNode(rightNode->key, rightNode, false, false); // WRITE
         rightLeftNode->rightPos = newP;
 
         node->rightID = rightLeftNode->key;
@@ -1116,26 +1207,31 @@ Bid AVLTree::insert2(Bid rootKey, unsigned long long& rootPos, Bid omapKey, stri
 
         rotate(node, rightLeftNode, leftHeight, false);
 
-        oram->ReadWrite(rightNode->key, rightNode, oldLeftRightPos, rightNode->pos, false, false, false); //WRITE        
+        oram->ReadWrite(rightNode->key, rightNode, oldLeftRightPos, rightNode->pos, false, false, false); // WRITE
         newP = RandomPath();
-        oram->ReadWrite(node->key, node, node->pos, newP, false, false, false); //WRITE
+        oram->ReadWrite(node->key, node, node->pos, newP, false, false, false); // WRITE
         node->pos = newP;
-        readWriteCacheNode(node->key, node, false, false); //WRITE
+        readWriteCacheNode(node->key, node, false, false); // WRITE
         rightLeftNode->leftPos = newP;
-        readWriteCacheNode(rightLeftNode->key, rightLeftNode, false, false); //WRITE
+        readWriteCacheNode(rightLeftNode->key, rightLeftNode, false, false); // WRITE
         doubleRotation = true;
         readWriteCacheNode(dummy, tmpDummyNode, true, true);
 
         rootPos = rightLeftNode->pos;
         height = rightLeftNode->height;
         retKey = rightLeftNode->key;
-    } else if (remainerIsDummy == false) {
+    }
+    else if (remainerIsDummy == false)
+    {
         //                printf("log5\n");
         //------------------------DUMMY---------------------------
-        if (node == NULL) {
+        if (node == NULL)
+        {
             readWriteCacheNode(dummy, tmpDummyNode, true, true);
             node->rightPos = node->rightPos;
-        } else {
+        }
+        else
+        {
             readWriteCacheNode(dummy, tmpDummyNode, true, true);
             node->rightPos = node->rightPos;
         }
@@ -1144,13 +1240,16 @@ Bid AVLTree::insert2(Bid rootKey, unsigned long long& rootPos, Bid omapKey, stri
         node->rightPos = node->rightPos;
 
         int leftLeftHeight = 0;
-        if (node->leftID != 0) {
-            Node* leftLeftNode = readWriteCacheNode(dummy, tmpDummyNode, true, true);
+        if (node->leftID != 0)
+        {
+            Node *leftLeftNode = readWriteCacheNode(dummy, tmpDummyNode, true, true);
             node->leftPos = node->leftPos;
             leftLeftHeight = leftLeftHeight;
             delete leftLeftNode;
-        } else {
-            Node* leftLeftNode = readWriteCacheNode(dummy, tmpDummyNode, true, true);
+        }
+        else
+        {
+            Node *leftLeftNode = readWriteCacheNode(dummy, tmpDummyNode, true, true);
             node->leftPos = node->leftPos;
             leftLeftHeight = leftLeftHeight;
             delete leftLeftNode;
@@ -1159,7 +1258,7 @@ Bid AVLTree::insert2(Bid rootKey, unsigned long long& rootPos, Bid omapKey, stri
         rotate(tmpDummyNode, tmpDummyNode, 0, false, true);
 
         RandomPath();
-        readWriteCacheNode(dummy, tmpDummyNode, false, true); //WRITE
+        readWriteCacheNode(dummy, tmpDummyNode, false, true); // WRITE
 
         node->rightID = node->rightID;
         node->rightPos = node->rightPos;
@@ -1169,60 +1268,74 @@ Bid AVLTree::insert2(Bid rootKey, unsigned long long& rootPos, Bid omapKey, stri
         rotate(tmpDummyNode, tmpDummyNode, 0, false, true);
 
         unsigned long long newP = RandomPath();
-        if (doubleRotation) {
+        if (doubleRotation)
+        {
             doubleRotation = false;
-            if (childDirisLeft) {
+            if (childDirisLeft)
+            {
                 leftNode = readWriteCacheNode(node->leftID, tmpDummyNode, true, false);
-                oram->ReadWrite(leftNode->key, leftNode, leftNode->pos, newP, false, false, false); //WRITE
+                oram->ReadWrite(leftNode->key, leftNode, leftNode->pos, newP, false, false, false); // WRITE
                 leftNode->pos = newP;
                 node->leftPos = newP;
-                Node* t = readWriteCacheNode(node->leftID, leftNode, false, false);
-                delete t;
-            } else {
-                rightNode = readWriteCacheNode(node->rightID, tmpDummyNode, true, false);
-                oram->ReadWrite(rightNode->key, rightNode, rightNode->pos, newP, false, false, false); //WRITE
-                rightNode->pos = newP;
-                node->rightPos = newP;
-                Node* t = readWriteCacheNode(node->rightID, rightNode, false, false);
+                Node *t = readWriteCacheNode(node->leftID, leftNode, false, false);
                 delete t;
             }
-        } else {
+            else
+            {
+                rightNode = readWriteCacheNode(node->rightID, tmpDummyNode, true, false);
+                oram->ReadWrite(rightNode->key, rightNode, rightNode->pos, newP, false, false, false); // WRITE
+                rightNode->pos = newP;
+                node->rightPos = newP;
+                Node *t = readWriteCacheNode(node->rightID, rightNode, false, false);
+                delete t;
+            }
+        }
+        else
+        {
             readWriteCacheNode(dummy, tmpDummyNode, true, true);
-            oram->ReadWrite(dummy, tmpDummyNode, rightNode->pos, rightNode->pos, false, true, false); //WRITE
-            Node* t = readWriteCacheNode(dummy, tmpDummyNode, true, true);
+            oram->ReadWrite(dummy, tmpDummyNode, rightNode->pos, rightNode->pos, false, true, false); // WRITE
+            Node *t = readWriteCacheNode(dummy, tmpDummyNode, true, true);
             delete t;
         }
         //----------------------------------------------------------------------------------------
 
         newP = RandomPath();
-        oram->ReadWrite(node->key, node, node->pos, newP, false, false, false); //WRITE
+        oram->ReadWrite(node->key, node, node->pos, newP, false, false, false); // WRITE
         node->pos = newP;
-        readWriteCacheNode(node->key, node, false, false); //WRITE
+        readWriteCacheNode(node->key, node, false, false); // WRITE
         readWriteCacheNode(dummy, tmpDummyNode, true, true);
 
         rootPos = node->pos;
         height = height;
         retKey = node->key;
-    } else {
-        //printf("log6\n");
+    }
+    else
+    {
+        // printf("log6\n");
         //------------------------DUMMY---------------------------
-        if (node == NULL) {
+        if (node == NULL)
+        {
             readWriteCacheNode(dummy, tmpDummyNode, true, true);
             node->rightPos = node->rightPos;
-        } else {
+        }
+        else
+        {
             readWriteCacheNode(dummy, tmpDummyNode, true, true);
             node->rightPos = node->rightPos;
         }
 
         readWriteCacheNode(dummy, tmpDummyNode, true, true);
         int leftLeftHeight = 0;
-        if (node->leftID != 0) {
-            Node* leftLeftNode = readWriteCacheNode(dummy, tmpDummyNode, true, true);
+        if (node->leftID != 0)
+        {
+            Node *leftLeftNode = readWriteCacheNode(dummy, tmpDummyNode, true, true);
             node->leftPos = node->leftPos;
             leftLeftHeight = leftLeftHeight;
             delete leftLeftNode;
-        } else {
-            Node* leftLeftNode = readWriteCacheNode(dummy, tmpDummyNode, true, true);
+        }
+        else
+        {
+            Node *leftLeftNode = readWriteCacheNode(dummy, tmpDummyNode, true, true);
             node->leftPos = node->leftPos;
             leftLeftHeight = leftLeftHeight;
             delete leftLeftNode;
@@ -1230,7 +1343,7 @@ Bid AVLTree::insert2(Bid rootKey, unsigned long long& rootPos, Bid omapKey, stri
         rotate(tmpDummyNode, tmpDummyNode, 0, false, true);
 
         RandomPath();
-        readWriteCacheNode(dummy, tmpDummyNode, false, true); //WRITE
+        readWriteCacheNode(dummy, tmpDummyNode, false, true); // WRITE
 
         node->rightID = node->rightID;
         node->rightPos = node->rightPos;
@@ -1240,31 +1353,37 @@ Bid AVLTree::insert2(Bid rootKey, unsigned long long& rootPos, Bid omapKey, stri
         rotate(tmpDummyNode, tmpDummyNode, 0, false, true);
 
         unsigned long long newP = RandomPath();
-        if (doubleRotation) {
+        if (doubleRotation)
+        {
             doubleRotation = false;
-            if (childDirisLeft) {
+            if (childDirisLeft)
+            {
                 leftNode = readWriteCacheNode(node->leftID, tmpDummyNode, true, false);
-                oram->ReadWrite(leftNode->key, leftNode, leftNode->pos, newP, false, false, false); //WRITE
+                oram->ReadWrite(leftNode->key, leftNode, leftNode->pos, newP, false, false, false); // WRITE
                 leftNode->pos = newP;
                 node->leftPos = newP;
-                Node* t = readWriteCacheNode(node->leftID, leftNode, false, false);
-                delete t;
-            } else {
-                rightNode = readWriteCacheNode(node->rightID, tmpDummyNode, true, false);
-                oram->ReadWrite(rightNode->key, rightNode, rightNode->pos, newP, false, false, false); //WRITE
-                rightNode->pos = newP;
-                node->rightPos = newP;
-                Node* t = readWriteCacheNode(node->rightID, rightNode, false, false);
+                Node *t = readWriteCacheNode(node->leftID, leftNode, false, false);
                 delete t;
             }
-        } else {
+            else
+            {
+                rightNode = readWriteCacheNode(node->rightID, tmpDummyNode, true, false);
+                oram->ReadWrite(rightNode->key, rightNode, rightNode->pos, newP, false, false, false); // WRITE
+                rightNode->pos = newP;
+                node->rightPos = newP;
+                Node *t = readWriteCacheNode(node->rightID, rightNode, false, false);
+                delete t;
+            }
+        }
+        else
+        {
             readWriteCacheNode(dummy, tmpDummyNode, true, true);
-            oram->ReadWrite(dummy, tmpDummyNode, rightNode->pos, rightNode->pos, false, true, false); //WRITE
-            Node* t = readWriteCacheNode(dummy, tmpDummyNode, true, true);
+            oram->ReadWrite(dummy, tmpDummyNode, rightNode->pos, rightNode->pos, false, true, false); // WRITE
+            Node *t = readWriteCacheNode(dummy, tmpDummyNode, true, true);
             delete t;
         }
 
-        oram->ReadWrite(dummy, tmpDummyNode, dumyPos, dumyPos, false, true, false); //WRITE
+        oram->ReadWrite(dummy, tmpDummyNode, dumyPos, dumyPos, false, true, false); // WRITE
         readWriteCacheNode(dummy, tmpDummyNode, true, true);
         readWriteCacheNode(dummy, tmpDummyNode, true, true);
 
@@ -1279,23 +1398,26 @@ Bid AVLTree::insert2(Bid rootKey, unsigned long long& rootPos, Bid omapKey, stri
     return retKey;
 }
 
-string AVLTree::search(Node* rootNode, Bid omapKey) {
+vector<byte_t> AVLTree::search(Node *rootNode, Bid omapKey)
+{
     Bid curKey = rootNode->key;
     unsigned long long lastPos = rootNode->pos;
     unsigned long long newPos = RandomPath();
     rootNode->pos = newPos;
-    string res(16, '\0');
+    vector<byte_t> res(sizeof(UserRecord), 0);
+    // string res(16, '\0');
     Bid dumyID = oram->nextDummyCounter;
-    Node* tmpDummyNode = new Node();
+    Node *tmpDummyNode = new Node();
     tmpDummyNode->isDummy = true;
-    std::array< byte_t, 16> resVec;
-    Node* head;
+    std::array<byte_t, 16> resVec;
+    Node *head;
     int dummyState = 0;
-    int upperBound = (int) (1.44 * oram->depth);
+    int upperBound = (int)(1.44 * oram->depth);
     bool found = false;
     unsigned long long dumyPos;
 
-    do {
+    do
+    {
         unsigned long long rnd = RandomPath();
         unsigned long long rnd2 = RandomPath();
         bool isDummyAction = Node::CTeq(Node::CTcmp(dummyState, 1), 0);
@@ -1314,7 +1436,8 @@ string AVLTree::search(Node* rootNode, Bid omapKey) {
 
         bool leftIsZero = head->leftID.isZero();
         bool rightIsZero = head->rightID.isZero();
-        for (int k = 0; k < curKey.id.size(); k++) {
+        for (int k = 0; k < curKey.id.size(); k++)
+        {
             curKey.id[k] = Node::conditional_select(head->leftID.id[k], curKey.id[k], !cond1 && cond2 && !leftIsZero);
             curKey.id[k] = Node::conditional_select(head->rightID.id[k], curKey.id[k], !cond1 && !cond2 && cond3 && !rightIsZero);
         }
@@ -1323,98 +1446,98 @@ string AVLTree::search(Node* rootNode, Bid omapKey) {
         newPos = Node::conditional_select(rnd2, newPos, !cond1 && cond2);
         newPos = Node::conditional_select(rnd2, newPos, !cond1 && !cond2 && cond3);
 
-        for (int i = 0; i < 16; i++) {
+        for (int i = 0; i < 16; i++)
+        {
             resVec[i] = Bid::conditional_select(head->value[i], resVec[i], !cond1);
-        }        
+        }
 
-        dummyState = Node::conditional_select(1, dummyState, !cond1 && !cond2 && !cond3 && cond4);               
-        dummyState = Node::conditional_select(1, dummyState, !cond4 && ((!cond1 && cond2 && leftIsZero)|| (!cond1 && !cond2 && cond3 && rightIsZero) ));        
+        dummyState = Node::conditional_select(1, dummyState, !cond1 && !cond2 && !cond3 && cond4);
+        dummyState = Node::conditional_select(1, dummyState, !cond4 && ((!cond1 && cond2 && leftIsZero) || (!cond1 && !cond2 && cond3 && rightIsZero)));
         found = Node::conditional_select(true, found, !cond1 && !cond2 && !cond3 && cond4);
         delete head;
     } while (oram->readCnt <= upperBound);
     delete tmpDummyNode;
-    for (int i = 0; i < 16; i++) {
-        res[i] = Bid::conditional_select(resVec[i], (byte_t) 0, found);
+    for (int i = 0; i < 16; i++)
+    {
+        res[i] = Bid::conditional_select(resVec[i], (byte_t)0, found);
     }
-//    res.assign(resVec.begin(), resVec.end());
+    //    res.assign(resVec.begin(), resVec.end());
     return res;
 }
 
-
-
-
-//string AVLTree::search(Node* rootNode, Bid omapKey) {
-//    Bid curKey = rootNode->key;
-//    unsigned long long lastPos = rootNode->pos;
-//    unsigned long long newPos = RandomPath();
-//    rootNode->pos = newPos;
-//    string res = "";
-//    Bid dumyID = oram->nextDummyCounter;
-//    Node* tmpDummyNode = new Node();
-//    tmpDummyNode->isDummy = true;
-//    Node* head;
-//    int dummyState = 0;
-//    int upperBound = (int) (1.44 * oram->depth);
-//    bool found = false;
-//    unsigned long long dumyPos;
-//    do {
-//        head = oram->ReadWrite(curKey, tmpDummyNode, lastPos, newPos, true, dummyState > 1 ? true : false);
-//        //        head = oram->ReadNode(curKey, lastPos, newPos, dummyState > 1 ? true : false);
-//        unsigned long long rnd = RandomPath();
-//        if (dummyState > 1) {
-//            lastPos = rnd;
-//            head->rightPos = head->rightPos;
-//            head->leftPos = head->leftPos;
-//            curKey = dumyID;
-//            newPos = rnd;
-//            res.assign(res.begin(), res.end());
-//            dummyState = dummyState;
-//            head->key = dumyID;
-//            found = found;
-//        } else if (head->key > omapKey) {
-//            lastPos = head->leftPos;
-//            head->rightPos = head->rightPos;
-//            head->leftPos = rnd;
-//            curKey = head->leftID;
-//            newPos = head->leftPos;
-//            res.assign(head->value.begin(), head->value.end());
-//            dummyState = dummyState;
-//            head->key = head->key;
-//            found = found;
-//        } else if (head->key < omapKey) {
-//            lastPos = head->rightPos;
-//            head->rightPos = rnd;
-//            head->leftPos = head->leftPos;
-//            curKey = head->rightID;
-//            newPos = head->rightPos;
-//            res.assign(head->value.begin(), head->value.end());
-//            dummyState = dummyState;
-//            head->key = head->key;
-//            found = found;
-//        } else {
-//            lastPos = lastPos;
-//            head->rightPos = head->rightPos;
-//            head->leftPos = head->leftPos;
-//            curKey = dumyID;
-//            newPos = newPos;
-//            res.assign(head->value.begin(), head->value.end());
-//            dummyState = dummyState;
-//            dummyState++;
-//            head->key = head->key;
-//            found = true;
-//        }
-//        oram->ReadWrite(head->key, head, head->pos, head->pos, false, dummyState <= 1 ? false : true);
-//        //        oram->WriteNode(head->key, head, oram->evictBuckets, dummyState <= 1 ? false : true);
-//        dummyState == 1 ? dummyState++ : dummyState;
-//    } while (!found || oram->readCnt < upperBound);
-//    
-//    return res;
-//}
+// string AVLTree::search(Node* rootNode, Bid omapKey) {
+//     Bid curKey = rootNode->key;
+//     unsigned long long lastPos = rootNode->pos;
+//     unsigned long long newPos = RandomPath();
+//     rootNode->pos = newPos;
+//     string res = "";
+//     Bid dumyID = oram->nextDummyCounter;
+//     Node* tmpDummyNode = new Node();
+//     tmpDummyNode->isDummy = true;
+//     Node* head;
+//     int dummyState = 0;
+//     int upperBound = (int) (1.44 * oram->depth);
+//     bool found = false;
+//     unsigned long long dumyPos;
+//     do {
+//         head = oram->ReadWrite(curKey, tmpDummyNode, lastPos, newPos, true, dummyState > 1 ? true : false);
+//         //        head = oram->ReadNode(curKey, lastPos, newPos, dummyState > 1 ? true : false);
+//         unsigned long long rnd = RandomPath();
+//         if (dummyState > 1) {
+//             lastPos = rnd;
+//             head->rightPos = head->rightPos;
+//             head->leftPos = head->leftPos;
+//             curKey = dumyID;
+//             newPos = rnd;
+//             res.assign(res.begin(), res.end());
+//             dummyState = dummyState;
+//             head->key = dumyID;
+//             found = found;
+//         } else if (head->key > omapKey) {
+//             lastPos = head->leftPos;
+//             head->rightPos = head->rightPos;
+//             head->leftPos = rnd;
+//             curKey = head->leftID;
+//             newPos = head->leftPos;
+//             res.assign(head->value.begin(), head->value.end());
+//             dummyState = dummyState;
+//             head->key = head->key;
+//             found = found;
+//         } else if (head->key < omapKey) {
+//             lastPos = head->rightPos;
+//             head->rightPos = rnd;
+//             head->leftPos = head->leftPos;
+//             curKey = head->rightID;
+//             newPos = head->rightPos;
+//             res.assign(head->value.begin(), head->value.end());
+//             dummyState = dummyState;
+//             head->key = head->key;
+//             found = found;
+//         } else {
+//             lastPos = lastPos;
+//             head->rightPos = head->rightPos;
+//             head->leftPos = head->leftPos;
+//             curKey = dumyID;
+//             newPos = newPos;
+//             res.assign(head->value.begin(), head->value.end());
+//             dummyState = dummyState;
+//             dummyState++;
+//             head->key = head->key;
+//             found = true;
+//         }
+//         oram->ReadWrite(head->key, head, head->pos, head->pos, false, dummyState <= 1 ? false : true);
+//         //        oram->WriteNode(head->key, head, oram->evictBuckets, dummyState <= 1 ? false : true);
+//         dummyState == 1 ? dummyState++ : dummyState;
+//     } while (!found || oram->readCnt < upperBound);
+//
+//     return res;
+// }
 
 /**
  * a recursive search function which traverse binary tree to find the target node
  */
-void AVLTree::batchSearch(Node* head, vector<Bid> keys, vector<Node*>* results) {
+void AVLTree::batchSearch(Node *head, vector<Bid> keys, vector<Node *> *results)
+{
     //    if (head == NULL || head->key == 0) {
     //        return;
     //    }
@@ -1442,16 +1565,20 @@ void AVLTree::batchSearch(Node* head, vector<Bid> keys, vector<Node*>* results) 
     //    }
 }
 
-void AVLTree::printTree(Node* rt, int indent) {
-    if (rt != 0 && rt->key != 0) {
-        Node* tmpDummyNode = new Node();
+void AVLTree::printTree(Node *rt, int indent)
+{
+    if (rt != 0 && rt->key != 0)
+    {
+        Node *tmpDummyNode = new Node();
         tmpDummyNode->isDummy = true;
-        Node* root = oram->ReadWriteTest(rt->key, tmpDummyNode, rt->pos, rt->pos, true, false, true);
+        Node *root = oram->ReadWriteTest(rt->key, tmpDummyNode, rt->pos, rt->pos, true, false, true);
 
         if (root->leftID != 0)
             printTree(oram->ReadWriteTest(root->leftID, tmpDummyNode, root->leftPos, root->leftPos, true, false, true), indent + 4);
-        if (indent > 0) {
-            for (int i = 0; i < indent; i++) {
+        if (indent > 0)
+        {
+            for (int i = 0; i < indent; i++)
+            {
                 printf(" ");
             }
         }
@@ -1470,7 +1597,8 @@ void AVLTree::printTree(Node* rt, int indent) {
 /*
  * before executing each operation, this function should be called with proper arguments
  */
-void AVLTree::startOperation(bool batchWrite) {
+void AVLTree::startOperation(bool batchWrite)
+{
     oram->start(batchWrite);
     totheight = 0;
     exist = false;
@@ -1480,38 +1608,44 @@ void AVLTree::startOperation(bool batchWrite) {
 /*
  * after executing each operation, this function should be called with proper arguments
  */
-void AVLTree::finishOperation() {
-    for (auto item : avlCache) {
+void AVLTree::finishOperation()
+{
+    for (auto item : avlCache)
+    {
         delete item;
     }
     avlCache.clear();
     oram->finilize();
 }
 
-unsigned long long AVLTree::RandomPath() {
+unsigned long long AVLTree::RandomPath()
+{
     uint32_t val;
-    sgx_read_rand((unsigned char *) &val, 4);
+    sgx_read_rand((unsigned char *)&val, 4);
     return val % (maxOfRandom);
 }
 
-AVLTree::AVLTree(long long maxSize, bytes<Key> secretkey, Bid& rootKey, unsigned long long& rootPos, map<Bid, string>* pairs, map<unsigned long long, unsigned long long>* permutation) {
-    int depth = (int) (ceil(log2(maxSize)) - 1) + 1;
-    maxOfRandom = (long long) (pow(2, depth));
+AVLTree::AVLTree(long long maxSize, bytes<Key> secretkey, Bid &rootKey, unsigned long long &rootPos, map<Bid, vector<byte_t>> *pairs, map<unsigned long long, unsigned long long> *permutation)
+{
+    int depth = (int)(ceil(log2(maxSize)) - 1) + 1;
+    maxOfRandom = (long long)(pow(2, depth));
     times.push_back(vector<double>());
     times.push_back(vector<double>());
     times.push_back(vector<double>());
     times.push_back(vector<double>());
 
-    vector<Node*> nodes;
-    for (auto pair : (*pairs)) {
-        Node* node = newNode(pair.first, pair.second);
+    vector<Node *> nodes;
+    for (auto pair : (*pairs))
+    {
+        Node *node = newNode(pair.first, pair.second);
         nodes.push_back(node);
     }
 
-    int nextPower2 = (int) pow(2, ceil(log2(nodes.size())));
-    for (int i = (int) nodes.size(); i < nextPower2; i++) {
+    int nextPower2 = (int)pow(2, ceil(log2(nodes.size())));
+    for (int i = (int)nodes.size(); i < nextPower2; i++)
+    {
         Bid bid = INF + i;
-        Node* node = newNode(bid, "");
+        Node *node = newNode(bid);
         node->isDummy = false;
         nodes.push_back(node);
     }
@@ -1526,11 +1660,12 @@ AVLTree::AVLTree(long long maxSize, bytes<Key> secretkey, Bid& rootKey, unsigned
     printf("Inserting in ORAM\n");
 
     double gp;
-    int size = (int) nodes.size();
-    for (int i = size; i < maxOfRandom * Z; i++) {
+    int size = (int)nodes.size();
+    for (int i = size; i < maxOfRandom * Z; i++)
+    {
         Bid bid;
         bid = INF + i;
-        Node* node = newNode(bid, "");
+        Node *node = newNode(bid);
         node->isDummy = true;
         node->pos = (*permutation)[permutationIterator];
         permutationIterator++;
@@ -1542,8 +1677,10 @@ AVLTree::AVLTree(long long maxSize, bytes<Key> secretkey, Bid& rootKey, unsigned
     times[1].push_back(t);
 }
 
-int AVLTree::sortedArrayToBST(vector<Node*>* nodes, long long start, long long end, unsigned long long& pos, Bid& node, map<unsigned long long, unsigned long long>* permutation) {
-    if (start > end) {
+int AVLTree::sortedArrayToBST(vector<Node *> *nodes, long long start, long long end, unsigned long long &pos, Bid &node, map<unsigned long long, unsigned long long> *permutation)
+{
+    if (start > end)
+    {
         pos = -1;
         node = 0;
         return 0;
@@ -1563,27 +1700,31 @@ int AVLTree::sortedArrayToBST(vector<Node*>* nodes, long long start, long long e
     return root->height;
 }
 
-Node* AVLTree::readWriteCacheNode(Bid bid, Node* inputnode, bool isRead, bool isDummy) {
-    Node* tmpWrite = Node::clone(inputnode);
+Node *AVLTree::readWriteCacheNode(Bid bid, Node *inputnode, bool isRead, bool isDummy)
+{
+    Node *tmpWrite = Node::clone(inputnode);
 
-    Node* res = new Node();
+    Node *res = new Node();
     res->isDummy = true;
     res->index = oram->nextDummyCounter++;
     res->key = oram->nextDummyCounter++;
     bool write = !isRead;
 
-    for (Node* node : avlCache) {
+    for (Node *node : avlCache)
+    {
         bool match = Node::CTeq(Bid::CTcmp(node->key, bid), 0) && !node->isDummy;
 
         node->isDummy = Node::conditional_select(true, node->isDummy, !isDummy && match && write);
         bool choice = !isDummy && match && isRead && !node->isDummy;
-        res->index = Node::conditional_select((long long) node->index, (long long) res->index, choice);
+        res->index = Node::conditional_select((long long)node->index, (long long)res->index, choice);
         res->isDummy = Node::conditional_select(node->isDummy, res->isDummy, choice);
-        res->pos = Node::conditional_select((long long) node->pos, (long long) res->pos, choice);
-        for (int k = 0; k < res->value.size(); k++) {
+        res->pos = Node::conditional_select((long long)node->pos, (long long)res->pos, choice);
+        for (int k = 0; k < res->value.size(); k++)
+        {
             res->value[k] = Node::conditional_select(node->value[k], res->value[k], choice);
         }
-        for (int k = 0; k < res->dum.size(); k++) {
+        for (int k = 0; k < res->dum.size(); k++)
+        {
             res->dum[k] = Node::conditional_select(node->dum[k], res->dum[k], choice);
         }
         res->evictionNode = Node::conditional_select(node->evictionNode, res->evictionNode, choice);
@@ -1591,13 +1732,16 @@ Node* AVLTree::readWriteCacheNode(Bid bid, Node* inputnode, bool isRead, bool is
         res->height = Node::conditional_select(node->height, res->height, choice);
         res->leftPos = Node::conditional_select(node->leftPos, res->leftPos, choice);
         res->rightPos = Node::conditional_select(node->rightPos, res->rightPos, choice);
-        for (int k = 0; k < res->key.id.size(); k++) {
+        for (int k = 0; k < res->key.id.size(); k++)
+        {
             res->key.id[k] = Node::conditional_select(node->key.id[k], res->key.id[k], choice);
         }
-        for (int k = 0; k < res->leftID.id.size(); k++) {
+        for (int k = 0; k < res->leftID.id.size(); k++)
+        {
             res->leftID.id[k] = Node::conditional_select(node->leftID.id[k], res->leftID.id[k], choice);
         }
-        for (int k = 0; k < res->rightID.id.size(); k++) {
+        for (int k = 0; k < res->rightID.id.size(); k++)
+        {
             res->rightID.id[k] = Node::conditional_select(node->rightID.id[k], res->rightID.id[k], choice);
         }
     }
@@ -1606,13 +1750,16 @@ Node* AVLTree::readWriteCacheNode(Bid bid, Node* inputnode, bool isRead, bool is
     return res;
 }
 
-void AVLTree::bitonicSort(vector<Node*>* nodes) {
+void AVLTree::bitonicSort(vector<Node *> *nodes)
+{
     int len = nodes->size();
     bitonic_sort(nodes, 0, len, 1);
 }
 
-void AVLTree::bitonic_sort(vector<Node*>* nodes, int low, int n, int dir) {
-    if (n > 1) {
+void AVLTree::bitonic_sort(vector<Node *> *nodes, int low, int n, int dir)
+{
+    if (n > 1)
+    {
         int middle = n / 2;
         bitonic_sort(nodes, low, middle, !dir);
         bitonic_sort(nodes, low + middle, n - middle, dir);
@@ -1620,12 +1767,16 @@ void AVLTree::bitonic_sort(vector<Node*>* nodes, int low, int n, int dir) {
     }
 }
 
-void AVLTree::bitonic_merge(vector<Node*>* nodes, int low, int n, int dir) {
-    if (n > 1) {
+void AVLTree::bitonic_merge(vector<Node *> *nodes, int low, int n, int dir)
+{
+    if (n > 1)
+    {
         int m = greatest_power_of_two_less_than(n);
 
-        for (int i = low; i < (low + n - m); i++) {
-            if (i != (i + m)) {
+        for (int i = low; i < (low + n - m); i++)
+        {
+            if (i != (i + m))
+            {
                 compare_and_swap((*nodes)[i], (*nodes)[i + m], dir);
             }
         }
@@ -1635,15 +1786,18 @@ void AVLTree::bitonic_merge(vector<Node*>* nodes, int low, int n, int dir) {
     }
 }
 
-void AVLTree::compare_and_swap(Node* item_i, Node* item_j, int dir) {
+void AVLTree::compare_and_swap(Node *item_i, Node *item_j, int dir)
+{
     int res = Bid::CTcmp(item_i->key, item_j->key);
     int cmp = Node::CTeq(res, 1);
     Node::conditional_swap(item_i, item_j, Node::CTeq(cmp, dir));
 }
 
-int AVLTree::greatest_power_of_two_less_than(int n) {
+int AVLTree::greatest_power_of_two_less_than(int n)
+{
     int k = 1;
-    while (k > 0 && k < n) {
+    while (k > 0 && k < n)
+    {
         k = k << 1;
     }
     return k >> 1;
