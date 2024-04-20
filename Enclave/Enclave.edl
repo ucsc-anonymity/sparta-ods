@@ -1,8 +1,8 @@
 /* Enclave.edl - Top EDL file. */
 
 enclave {
-             
-    from "OMAP/OMAP.edl" import *;
+
+    from "sgx_tsgxssl.edl" import *;
     from "sgx_tstdc.edl" import *;
 
     from "sgx_tkey_exchange.edl" import *;
@@ -13,23 +13,26 @@ enclave {
     include "sgx_trts.h"
 
     trusted {
-        public sgx_status_t enclave_init_ra(int b_pse,
-                                            [out] sgx_ra_context_t *p_context);
-        public sgx_status_t enclave_ra_close(sgx_ra_context_t context);
-        public sgx_status_t verify_att_result_mac(sgx_ra_context_t context,
-                                                  [in,size=message_size] uint8_t* message, 
-                                                  size_t message_size, 
-                                                  [in,size=mac_size] uint8_t* mac, 
-                                                  size_t mac_size);
-        public sgx_status_t put_secret_data(sgx_ra_context_t context,  
-                                            [in,size=secret_size] uint8_t* p_secret,
-                                            uint32_t secret_size,
-                                            [in,count=16] uint8_t* gcm_mac);
-    };
-    untrusted { 
-        void ocall_print_string([in, string] const char *str);        
-        void ocall_start_timer(int timerID);
-        double ocall_stop_timer(int timerID);
+        public void ecall_setup_oram(int max_size);
+        public void ecall_read_node([in, count=10] const char *bid,[out,size=16] char* value);
+        public void ecall_write_node([in, count=10] const char *bid,[in,size=16]const char* value);
+        public void ecall_setup_omap_by_client(int max_size,[in, count=10] const char *bid,long long rootPos,[in,size=128] const char* secretKey);
+        public double ecall_main(int max_size);
+        public double ecall_measure_oram_speed(int testSize);
+        public double ecall_measure_omap_speed(int testSize);
+        public double ecall_measure_eviction_speed(int testSize);
+        public double ecall_measure_oram_setup_speed(int testSize);
+        public double ecall_measure_omap_setup_speed(int testSize);
     };
 
+    untrusted {
+        void ocall_print_string([in, string] const char *str);
+        void ocall_start_timer(int timerID);
+        double ocall_stop_timer(int timerID);
+        void ocall_setup_ramStore(size_t num, int size);
+        size_t ocall_nread_ramStore(size_t blockCount,[in,count=blockCount]long long* indexes, [in,out,count=len] char *blk,size_t len);
+        void ocall_nwrite_ramStore(size_t blockCount,[in,count=blockCount]long long* indexes, [in, count=len] const char *blk,size_t len);
+        void ocall_initialize_ramStore(long long begin,long long end, [in, count=len] const char *block,size_t len);
+        void ocall_write_ramStore(long long pos, [in, count=len] const char *block,size_t len);
+    };
 };

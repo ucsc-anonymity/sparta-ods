@@ -1,333 +1,343 @@
 #include "Enclave.h"
 #include <assert.h>
+#include <string>
 #include "Enclave_t.h"
 #include "sgx_tkey_exchange.h"
 #include "sgx_tcrypto.h"
 #include "string.h"
+#include "OMAP/OMAP.h"
+#include "OMAP/Dassl.hpp"
 
-// This is the public EC key of the SP. The corresponding private EC key is
-// used by the SP to sign data used in the remote attestation SIGMA protocol
-// to sign channel binding data in MSG2. A successful verification of the
-// signature confirms the identity of the SP to the ISV app in remote
-// attestation secure channel binding. The public EC key should be hardcoded in
-// the enclave or delivered in a trustworthy manner. The use of a spoofed public
-// EC key in the remote attestation with secure channel binding session may lead
-// to a security compromise. Every different SP the enlcave communicates to
-// must have a unique SP public key. Delivery of the SP public key is
-// determined by the ISV. The TKE SIGMA protocl expects an Elliptical Curve key
-// based on NIST P-256
-static const sgx_ec256_public_t g_sp_pub_key = {
-    {
-        0x72, 0x12, 0x8a, 0x7a, 0x17, 0x52, 0x6e, 0xbf,
-        0x85, 0xd0, 0x3a, 0x62, 0x37, 0x30, 0xae, 0xad,
-        0x3e, 0x3d, 0xaa, 0xee, 0x9c, 0x60, 0x73, 0x1d,
-        0xb0, 0x5b, 0xe8, 0x62, 0x1c, 0x4b, 0xeb, 0x38
-    },
-    {
-        0xd4, 0x81, 0x40, 0xd9, 0x50, 0xe2, 0x57, 0x7b,
-        0x26, 0xee, 0xb7, 0x41, 0xe7, 0xc6, 0x14, 0xe2,
-        0x24, 0xb7, 0xbd, 0xc9, 0x03, 0xf2, 0x9a, 0x28,
-        0xa8, 0x3c, 0xc8, 0x10, 0x11, 0x14, 0x5e, 0x06
-    }
-
-};
-
-// Used to store the secret passed by the SP in the sample code. The
-// size is forced to be 8 bytes. Expected value is
-// 0x01,0x02,0x03,0x04,0x0x5,0x0x6,0x0x7
-uint8_t g_secret[8] = {0};
-
-
-#ifdef SUPPLIED_KEY_DERIVATION
-
-#pragma message ("Supplied key derivation function is used.")
-
-typedef struct _hash_buffer_t {
-    uint8_t counter[4];
-    sgx_ec256_dh_shared_t shared_secret;
-    uint8_t algorithm_id[4];
-} hash_buffer_t;
-
-const char ID_U[] = "SGXRAENCLAVE";
-const char ID_V[] = "SGXRASERVER";
-
-// Derive two keys from shared key and key id.
-
-bool derive_key(
-        const sgx_ec256_dh_shared_t *p_shared_key,
-        uint8_t key_id,
-        sgx_ec_key_128bit_t *first_derived_key,
-        sgx_ec_key_128bit_t *second_derived_key) {
-    sgx_status_t sgx_ret = SGX_SUCCESS;
-    hash_buffer_t hash_buffer;
-    sgx_sha_state_handle_t sha_context;
-    sgx_sha256_hash_t key_material;
-
-    memset(&hash_buffer, 0, sizeof (hash_buffer_t));
-    /* counter in big endian  */
-    hash_buffer.counter[3] = key_id;
-
-    /*convert from little endian to big endian */
-    for (size_t i = 0; i < sizeof (sgx_ec256_dh_shared_t); i++) {
-        hash_buffer.shared_secret.s[i] = p_shared_key->s[sizeof (p_shared_key->s) - 1 - i];
-    }
-
-    sgx_ret = sgx_sha256_init(&sha_context);
-    if (sgx_ret != SGX_SUCCESS) {
-        return false;
-    }
-    sgx_ret = sgx_sha256_update((uint8_t*) & hash_buffer, sizeof (hash_buffer_t), sha_context);
-    if (sgx_ret != SGX_SUCCESS) {
-        sgx_sha256_close(sha_context);
-        return false;
-    }
-    sgx_ret = sgx_sha256_update((uint8_t*) & ID_U, sizeof (ID_U), sha_context);
-    if (sgx_ret != SGX_SUCCESS) {
-        sgx_sha256_close(sha_context);
-        return false;
-    }
-    sgx_ret = sgx_sha256_update((uint8_t*) & ID_V, sizeof (ID_V), sha_context);
-    if (sgx_ret != SGX_SUCCESS) {
-        sgx_sha256_close(sha_context);
-        return false;
-    }
-    sgx_ret = sgx_sha256_get_hash(sha_context, &key_material);
-    if (sgx_ret != SGX_SUCCESS) {
-        sgx_sha256_close(sha_context);
-        return false;
-    }
-    sgx_ret = sgx_sha256_close(sha_context);
-
-    assert(sizeof (sgx_ec_key_128bit_t)* 2 == sizeof (sgx_sha256_hash_t));
-    memcpy(first_derived_key, &key_material, sizeof (sgx_ec_key_128bit_t));
-    memcpy(second_derived_key, (uint8_t*) & key_material + sizeof (sgx_ec_key_128bit_t), sizeof (sgx_ec_key_128bit_t));
-
-    // memset here can be optimized away by compiler, so please use memset_s on
-    // windows for production code and similar functions on other OSes.
-    memset(&key_material, 0, sizeof (sgx_sha256_hash_t));
-
-    return true;
-}
-
-//isv defined key derivation function id
-#define ISV_KDF_ID 2
-
-typedef enum _derive_key_type_t {
-    DERIVE_KEY_SMK_SK = 0,
-    DERIVE_KEY_MK_VK,
-} derive_key_type_t;
-
-sgx_status_t key_derivation(const sgx_ec256_dh_shared_t* shared_key,
-        uint16_t kdf_id,
-        sgx_ec_key_128bit_t* smk_key,
-        sgx_ec_key_128bit_t* sk_key,
-        sgx_ec_key_128bit_t* mk_key,
-        sgx_ec_key_128bit_t* vk_key) {
-    bool derive_ret = false;
-
-    if (NULL == shared_key) {
-        return SGX_ERROR_INVALID_PARAMETER;
-    }
-
-    if (ISV_KDF_ID != kdf_id) {
-        //fprintf(stderr, "\nError, key derivation id mismatch in [%s].", __FUNCTION__);
-        return SGX_ERROR_KDF_MISMATCH;
-    }
-
-    derive_ret = derive_key(shared_key, DERIVE_KEY_SMK_SK,
-            smk_key, sk_key);
-    if (derive_ret != true) {
-        //fprintf(stderr, "\nError, derive key fail in [%s].", __FUNCTION__);
-        return SGX_ERROR_UNEXPECTED;
-    }
-
-    derive_ret = derive_key(shared_key, DERIVE_KEY_MK_VK,
-            mk_key, vk_key);
-    if (derive_ret != true) {
-        //fprintf(stderr, "\nError, derive key fail in [%s].", __FUNCTION__);
-        return SGX_ERROR_UNEXPECTED;
-    }
-    return SGX_SUCCESS;
-}
-#else
-#pragma message ("Default key derivation function is used.")
-#endif
-
-// This ecall is a wrapper of sgx_ra_init to create the trusted
-// KE exchange key context needed for the remote attestation
-// SIGMA API's. Input pointers aren't checked since the trusted stubs
-// copy them into EPC memory.
-//
-// @param b_pse Indicates whether the ISV app is using the
-//              platform services.
-// @param p_context Pointer to the location where the returned
-//                  key context is to be copied.
-//
-// @return Any error return from the create PSE session if b_pse
-//         is true.
-// @return Any error returned from the trusted key exchange API
-//         for creating a key context.
-
-sgx_status_t enclave_init_ra(
-    int b_pse,
-    sgx_ra_context_t *p_context)
+void printf(const char *fmt, ...)
 {
-    // isv enclave call to trusted key exchange library.
-    sgx_status_t ret;
-#ifdef SUPPLIED_KEY_DERIVATION
-    ret = sgx_ra_init_ex(&g_sp_pub_key, b_pse, key_derivation, p_context);
-#else
-    ret = sgx_ra_init(&g_sp_pub_key, b_pse, p_context);
-#endif
-    return ret;
-}
-
-// Closes the tKE key context used during the SIGMA key
-// exchange.
-//
-// @param context The trusted KE library key context.
-//
-// @return Return value from the key context close API
-
-sgx_status_t SGXAPI enclave_ra_close(
-        sgx_ra_context_t context) {
-    sgx_status_t ret;
-    ret = sgx_ra_close(context);
-    return ret;
-}
-
-
-// Verify the mac sent in att_result_msg from the SP using the
-// MK key. Input pointers aren't checked since the trusted stubs
-// copy them into EPC memory.
-//
-//
-// @param context The trusted KE library key context.
-// @param p_message Pointer to the message used to produce MAC
-// @param message_size Size in bytes of the message.
-// @param p_mac Pointer to the MAC to compare to.
-// @param mac_size Size in bytes of the MAC
-//
-// @return SGX_ERROR_INVALID_PARAMETER - MAC size is incorrect.
-// @return Any error produced by tKE  API to get SK key.
-// @return Any error produced by the AESCMAC function.
-// @return SGX_ERROR_MAC_MISMATCH - MAC compare fails.
-
-sgx_status_t verify_att_result_mac(sgx_ra_context_t context,
-        uint8_t* p_message,
-        size_t message_size,
-        uint8_t* p_mac,
-        size_t mac_size) {
-    sgx_status_t ret;
-    sgx_ec_key_128bit_t mk_key;
-
-    if (mac_size != sizeof (sgx_mac_t)) {
-        ret = SGX_ERROR_INVALID_PARAMETER;
-        return ret;
-    }
-    if (message_size > UINT32_MAX) {
-        ret = SGX_ERROR_INVALID_PARAMETER;
-        return ret;
-    }
-
-    do {
-        uint8_t mac[SGX_CMAC_MAC_SIZE] = {0};
-
-        ret = sgx_ra_get_keys(context, SGX_RA_KEY_MK, &mk_key);
-        if (SGX_SUCCESS != ret) {
-            break;
-        }
-        ret = sgx_rijndael128_cmac_msg(&mk_key,
-                p_message,
-                (uint32_t) message_size,
-                &mac);
-        if (SGX_SUCCESS != ret) {
-            break;
-        }
-        if (0 == consttime_memequal(p_mac, mac, sizeof (mac))) {
-            ret = SGX_ERROR_MAC_MISMATCH;
-            break;
-        }
-
-    } while (0);
-
-    return ret;
-}
-
-
-// Generate a secret information for the SP encrypted with SK.
-// Input pointers aren't checked since the trusted stubs copy
-// them into EPC memory.
-//
-// @param context The trusted KE library key context.
-// @param p_secret Message containing the secret.
-// @param secret_size Size in bytes of the secret message.
-// @param p_gcm_mac The pointer the the AESGCM MAC for the
-//                 message.
-//
-// @return SGX_ERROR_INVALID_PARAMETER - secret size if
-//         incorrect.
-// @return Any error produced by tKE  API to get SK key.
-// @return Any error produced by the AESGCM function.
-// @return SGX_ERROR_UNEXPECTED - the secret doesn't match the
-//         expected value.
-
-sgx_status_t put_secret_data(
-        sgx_ra_context_t context,
-        uint8_t *p_secret,
-        uint32_t secret_size,
-        uint8_t *p_gcm_mac) {
-    sgx_status_t ret = SGX_SUCCESS;
-    sgx_ec_key_128bit_t sk_key;
-
-    do {
-        if (secret_size != 8) {
-            ret = SGX_ERROR_INVALID_PARAMETER;
-            break;
-        }
-
-        ret = sgx_ra_get_keys(context, SGX_RA_KEY_SK, &sk_key);
-        if (SGX_SUCCESS != ret) {
-            break;
-        }
-
-        uint8_t aes_gcm_iv[12] = {0};
-        ret = sgx_rijndael128GCM_decrypt(&sk_key,
-                p_secret,
-                secret_size,
-                &g_secret[0],
-                &aes_gcm_iv[0],
-                12,
-                NULL,
-                0,
-                (const sgx_aes_gcm_128bit_tag_t *)
-                (p_gcm_mac));
-
-        uint32_t i;
-        bool secret_match = true;
-        for (i = 0; i < secret_size; i++) {
-            if (g_secret[i] != i) {
-                secret_match = false;
-            }
-        }
-
-        if (!secret_match) {
-            ret = SGX_ERROR_UNEXPECTED;
-        }
-
-        // Once the server has the shared secret, it should be sealed to
-        // persistent storage for future use. This will prevents having to
-        // perform remote attestation until the secret goes stale. Once the
-        // enclave is created again, the secret can be unsealed.
-    } while (0);
-    return ret;
-}
-
-void printf(const char *fmt, ...) {
     char buf[BUFSIZ] = {'\0'};
     va_list ap;
     va_start(ap, fmt);
     vsnprintf(buf, BUFSIZ, fmt, ap);
     va_end(ap);
     ocall_print_string(buf);
+}
+
+double ecall_main(int max_size)
+{
+    // return ecall_measure_omap_speed(max_size);
+    Dassl dassl(5, 10);
+    dassl.registerUser(1);
+    dassl.registerUser(2);
+
+    vector<message> one(8);
+    for (int i = 0; i < 3; i++)
+        dassl.processSend(1, i + 1);
+    dassl.processFetch(1, one);
+    for (auto &item : one)
+    {
+        printf("%llu\n", item);
+    }
+    printf("\n");
+
+    vector<message> two(5);
+    for (int i = 0; i < 3; i++)
+        dassl.processSend(2, i + 1);
+    dassl.processFetch(2, two);
+    for (auto &item : two)
+    {
+        printf("%llu\n", item);
+    }
+    printf("\n");
+
+    for (int i = 4; i < 100; i++)
+        dassl.processSend(1, i);
+    dassl.processFetch(1, one);
+    for (auto &item : one)
+    {
+        printf("%llu\n", item);
+    }
+}
+
+static OMAP *omap = NULL;
+
+void ecall_setup_oram(int max_size)
+{
+    bytes<Key> tmpkey{0};
+    omap = new OMAP(max_size, tmpkey);
+}
+
+void ecall_setup_omap_by_client(int max_size, const char *bid, long long rootPos, const char *secretKey)
+{
+    bytes<Key> tmpkey;
+    std::memcpy(tmpkey.data(), secretKey, Key);
+    std::array<byte_t, ID_SIZE> id;
+    std::memcpy(id.data(), bid, ID_SIZE);
+    Bid rootBid(id);
+    omap = new OMAP(max_size, rootBid, rootPos, tmpkey);
+}
+
+void ecall_read_node(const char *bid, char *value)
+{
+    std::array<byte_t, ID_SIZE> id;
+    std::memcpy(id.data(), bid, ID_SIZE);
+    Bid inputBid(id);
+    string res = omap->find(inputBid);
+    std::memcpy(value, res.c_str(), 16);
+}
+
+void ecall_write_node(const char *bid, const char *value)
+{
+    std::array<byte_t, ID_SIZE> id;
+    std::memcpy(id.data(), bid, ID_SIZE);
+    Bid inputBid(id);
+    string val(value);
+    omap->insert(inputBid, val);
+}
+
+double ecall_measure_oram_speed(int testSize)
+{
+    return 0;
+}
+
+void check_memory(string text)
+{
+    unsigned int required = 0x4f00000; // adapt to native uint
+    char *mem = NULL;
+    while (mem == NULL)
+    {
+        mem = (char *)malloc(required);
+        if ((required -= 8) < 0xFFF)
+        {
+            if (mem)
+                free(mem);
+            printf("Cannot allocate enough memory\n");
+            return;
+        }
+    }
+
+    free(mem);
+    mem = (char *)malloc(required);
+    if (mem == NULL)
+    {
+        printf("Cannot enough allocate memory\n");
+        return;
+    }
+    printf("%s = %d\n", text.c_str(), required);
+    free(mem);
+}
+
+double ecall_measure_omap_speed(int testSize)
+{
+    double time1, time2, total = 0;
+    ecall_setup_oram(testSize);
+    printf("Warming UP DOMAP:\n");
+    for (int i = 0; i < 2000; i++)
+    {
+        if (i % 10 == 0)
+        {
+            printf("%d/%d\n", i, 2000);
+        }
+        total = 0;
+        uint32_t randval;
+        sgx_read_rand((unsigned char *)&randval, 4);
+        int num = (randval % (testSize)) + 1;
+        std::array<uint8_t, 16> id;
+        std::fill(id.begin(), id.end(), 0);
+
+        for (int j = 0; j < 4; j++)
+        {
+            id[3 - j] = (byte_t)(num >> (j * 8));
+        }
+
+        string str = to_string(num);
+        std::array<uint8_t, 16> value;
+        std::fill(value.begin(), value.end(), 0);
+        std::copy(str.begin(), str.end(), value.begin());
+        ocall_start_timer(535);
+        ecall_write_node((const char *)id.data(), (const char *)value.data());
+        ocall_stop_timer(&time1, 535);
+
+        char *val = new char[16];
+        ocall_start_timer(535);
+        ecall_read_node((const char *)id.data(), val);
+        ocall_stop_timer(&time2, 535);
+        total += time1 + time2;
+        assert(string(val) == str);
+        delete val;
+    }
+
+    printf("begin test\n");
+    omap->treeHandler->logTime = true;
+    omap->treeHandler->times[0].clear();
+    omap->treeHandler->times[1].clear();
+    omap->treeHandler->times[2].clear();
+    omap->treeHandler->times[3].clear();
+
+    for (int j = 0; j < 10; j++)
+    {
+        total = 0;
+        for (int i = 1; i <= 10; i++)
+        {
+            uint32_t randval;
+            sgx_read_rand((unsigned char *)&randval, 4);
+            int num = (randval % (testSize)) + 1;
+            std::array<uint8_t, 16> id;
+            std::fill(id.begin(), id.end(), 0);
+
+            for (int j = 0; j < 4; j++)
+            {
+                id[3 - j] = (byte_t)(num >> (j * 8));
+            }
+
+            string str = to_string(i);
+            std::array<uint8_t, 16> value;
+            std::fill(value.begin(), value.end(), 0);
+            std::copy(str.begin(), str.end(), value.begin());
+            ocall_start_timer(535);
+            ecall_write_node((const char *)id.data(), (const char *)value.data());
+            ocall_stop_timer(&time1, 535);
+            printf("Write Time:%f\n", time1);
+            char *val = new char[16];
+            ocall_start_timer(535);
+            ecall_read_node((const char *)id.data(), val);
+            ocall_stop_timer(&time2, 535);
+            printf("Read Time:%f\n", time2);
+            total += time1 + time2;
+            // printf("expected value:%s result:%s\n",str.c_str(),string(val).c_str());
+            assert(string(val) == str);
+            delete val;
+        }
+        printf("Average OMAP Access Time: %f\n", total / 200);
+    }
+
+    vector<string> names;
+    names.push_back("Write Balance:");
+    names.push_back("Write Evict Buckets:");
+    names.push_back("Read Tree Traverse:");
+    names.push_back("Read Evict Buckets:");
+
+    for (int i = 0; i < names.size(); i++)
+    {
+        printf("%s:\n", names[i].c_str());
+        for (int j = 0; j < omap->treeHandler->times[i].size(); j++)
+        {
+            printf("%f\n", omap->treeHandler->times[i][j]);
+        }
+    }
+
+    return total / (20);
+}
+
+double ecall_measure_eviction_speed(int testSize)
+{
+    bytes<Key> tmpkey{0};
+    double time1, total = 0;
+    long long s = (long long)pow(2, testSize);
+    ORAM *oram = new ORAM(s, tmpkey, true, true);
+
+    for (int j = 0; j < 10; j++)
+    {
+        total = 0;
+        for (int i = 1; i <= 100; i++)
+        {
+            oram->start(false);
+            oram->prepareForEvictionTest();
+            ocall_start_timer(535);
+            oram->evict(true);
+            ocall_stop_timer(&time1, 535);
+            total += time1;
+        }
+        printf("Total Eviction Time: %f\n", total / 100);
+    }
+    return oram->evicttime / oram->evictcount;
+}
+
+double ecall_measure_oram_setup_speed(int testSize)
+{
+    vector<Node *> nodes;
+    int depth = (int)(ceil(log2(testSize)) - 1) + 1;
+    long long maxSize = (int)(pow(2, depth));
+    for (int i = 0; i < maxSize; i++)
+    {
+        Node *tmp = new Node();
+        tmp->index = i + 1;
+        tmp->key = i + 1;
+        tmp->isDummy = false;
+        string value = "test_" + to_string(i + 1);
+        std::fill(tmp->value.begin(), tmp->value.end(), 0);
+        std::copy(value.begin(), value.end(), tmp->value.begin());
+        uint32_t randval;
+        sgx_read_rand((unsigned char *)&randval, 4);
+        nodes.push_back(tmp);
+    }
+    map<unsigned long long, unsigned long long> permutation;
+
+    int j = 0;
+    int cnt = 0;
+    for (int i = 0; i < maxSize * 4; i++)
+    {
+        if (i % 1000000 == 0)
+        {
+            printf("%d/%d\n", i, maxSize * 4);
+        }
+        if (cnt == 4)
+        {
+            j++;
+            cnt = 0;
+        }
+        permutation[i] = (j + 1) % maxSize;
+        cnt++;
+    }
+
+    bytes<Key> tmpkey{0};
+    double time2;
+    ocall_start_timer(535);
+    ORAM *oram = new ORAM(maxSize, tmpkey, &nodes, permutation);
+    ocall_stop_timer(&time2, 535);
+    //    Node* dummyNode = new Node();
+    //    dummyNode->isDummy = true;
+    //    Bid id = 2;
+    //    unsigned long long readpos = 1;
+    //    Node* res = oram->ReadWrite(id, dummyNode, readpos, readpos, true, false);
+    //     assert(!res->isDummy);
+    printf("Setup time is:%f\n", time2);
+}
+
+double ecall_measure_omap_setup_speed(int testSize)
+{
+    map<Bid, string> pairs;
+    int depth = (int)(ceil(log2(testSize)) - 1) + 1;
+    long long maxSize = (int)(pow(2, depth));
+    for (int i = 1; i < maxSize / 10; i++)
+    {
+        Bid k = i;
+        pairs[k] = "test_" + to_string(i);
+    }
+    map<unsigned long long, unsigned long long> permutation;
+
+    int j = 0;
+    int cnt = 0;
+    for (int i = 0; i < maxSize * 4; i++)
+    {
+        if (i % 1000000 == 0)
+        {
+            printf("%d/%d\n", i, maxSize * 4);
+        }
+        if (cnt == 4)
+        {
+            j++;
+            cnt = 0;
+        }
+        permutation[i] = (j + 1) % maxSize;
+        cnt++;
+    }
+
+    bytes<Key> tmpkey{0};
+    double time2;
+    ocall_start_timer(535);
+    OMAP *omap = new OMAP(maxSize, tmpkey, &pairs, &permutation);
+    ocall_stop_timer(&time2, 535);
+    printf("Setup time is:%f\n", time2);
+    Bid testKey = 3;
+    string res = omap->find(testKey);
+    assert(strcmp(res.c_str(), "test_3") == 0);
+
+    //    printf("Creating AVL time is:%f\n", omap->treeHandler->times[0][0]);
+    //    printf("ORAM Setup:%f\n", omap->treeHandler->times[1][0]);
 }
