@@ -11,19 +11,20 @@ enclave {
 
     include "sgx_key_exchange.h"
     include "sgx_trts.h"
+    include "stdbool.h"
 
     trusted {
-        public double ecall_main(int max_size);
+        public int ecall_main(int max_size);
     };
 
     untrusted {
         void ocall_print_string([in, string] const char *str);
         void ocall_start_timer(int timerID);
         double ocall_stop_timer(int timerID);
-        void ocall_setup_ramStore(size_t num, int size);
-        size_t ocall_nread_ramStore(size_t blockCount,[in,count=blockCount]long long* indexes, [in,out,count=len] char *blk,size_t len);
-        void ocall_nwrite_ramStore(size_t blockCount,[in,count=blockCount]long long* indexes, [in, count=len] const char *blk,size_t len);
-        void ocall_initialize_ramStore(long long begin,long long end, [in, count=len] const char *block,size_t len);
-        void ocall_write_ramStore(long long pos, [in, count=len] const char *block,size_t len);
+        void ocall_setup_ramStore(bool map, size_t num, int size);
+        size_t ocall_nread_ramStore(bool map, size_t blockCount,[in,count=blockCount]long long* indexes, [in,out,count=len] char *blk,size_t len);
+        void ocall_nwrite_ramStore(bool map, size_t blockCount,[in,count=blockCount]long long* indexes, [in, count=len] const char *blk,size_t len);
+        void ocall_initialize_ramStore(bool map, long long begin,long long end, [in, count=len] const char *block,size_t len);
+        void ocall_write_ramStore(bool map, long long pos, [in, count=len] const char *block,size_t len);
     };
 };

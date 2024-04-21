@@ -325,7 +325,7 @@ int SGX_CDECL main(int argc, char *argv[])
     (void)(argc);
     (void)(argv);
 
-    double t;
+    int t;
 
     if (initialize_enclave() < 0)
     {
@@ -342,6 +342,8 @@ int SGX_CDECL main(int argc, char *argv[])
     }
 
     ecall_main(global_eid, &t, maxSize);
+    if (t == 0)
+        printf("Enclave successfully exited.\n");
 
     // ecall_measure_omap_speed(global_eid, &t, maxSize);
     //        ecall_measure_omap_setup_speed(global_eid, &t, maxSize);

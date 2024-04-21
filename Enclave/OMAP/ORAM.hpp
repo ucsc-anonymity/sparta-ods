@@ -33,6 +33,17 @@ public:
     {
     }
 
+    Node(Bid k, vector<byte_t> v, unsigned long long p) : key(k), pos(p)
+    {
+        // copy the first sizeof(T) bytes over into value
+        if (v.size() != sizeof(T))
+        {
+            throw std::invalid_argument("Invalid size for value.");
+        }
+        std::copy(v.begin(), v.end(), value.begin());
+        isDummy = false;
+    }
+
     ~Node()
     {
     }
@@ -48,7 +59,6 @@ public:
     bool modified;
     unsigned long long leftPos;
     unsigned long long rightPos;
-    std::array<byte_t, 24> dum;
 
     static Node *clone(Node *oldNode)
     {
@@ -65,7 +75,6 @@ public:
         newNode->leftPos = oldNode->leftPos;
         newNode->height = oldNode->height;
         newNode->rightPos = oldNode->rightPos;
-        newNode->dum = oldNode->dum;
         return newNode;
     }
 
@@ -152,10 +161,6 @@ public:
         {
             a->value[k] = Node::conditional_select(b->value[k], a->value[k], choice);
         }
-        for (int k = 0; k < b->dum.size(); k++)
-        {
-            a->dum[k] = Node::conditional_select(b->dum[k], a->dum[k], choice);
-        }
         a->evictionNode = Node::conditional_select(b->evictionNode, a->evictionNode, choice);
         a->modified = Node::conditional_select(b->modified, a->modified, choice);
         a->height = Node::conditional_select(b->height, a->height, choice);
@@ -192,10 +197,6 @@ public:
         {
             b->value[k] = Node::conditional_select(a->value[k], b->value[k], choice);
         }
-        for (int k = 0; k < b->dum.size(); k++)
-        {
-            b->dum[k] = Node::conditional_select(a->dum[k], b->dum[k], choice);
-        }
         b->evictionNode = Node::conditional_select(a->evictionNode, b->evictionNode, choice);
         b->modified = Node::conditional_select(a->modified, b->modified, choice);
         b->height = Node::conditional_select(a->height, b->height, choice);
@@ -220,10 +221,6 @@ public:
         for (int k = 0; k < b->value.size(); k++)
         {
             a->value[k] = Node::conditional_select(tmp.value[k], a->value[k], choice);
-        }
-        for (int k = 0; k < b->dum.size(); k++)
-        {
-            a->dum[k] = Node::conditional_select(tmp.dum[k], a->dum[k], choice);
         }
         a->evictionNode = Node::conditional_select(tmp.evictionNode, a->evictionNode, choice);
         a->modified = Node::conditional_select(tmp.modified, a->modified, choice);
@@ -430,6 +427,7 @@ private:
     unsigned long long INF;
     unsigned int PERMANENT_STASH_SIZE;
 
+    bool map;
     size_t blockSize;
     unordered_map<long long, Bucket> virtualStorage;
     Cache<T> stash, incStash;
@@ -448,13 +446,6 @@ private:
     int stashCounter = 0;
     bool isIncomepleteRead = false;
 
-    unsigned long long RandomPath()
-    {
-        uint32_t val;
-        sgx_read_rand((unsigned char *)&val, 4);
-        return val % (maxOfRandom);
-    }
-
     long long GetNodeOnPath(long long leaf, int curDepth)
     {
         leaf += bucketCount / 2;
@@ -470,7 +461,14 @@ private:
     {
         block b = SerialiseBucket(bucket);
         block ciphertext = AES::Encrypt(key, b, clen_size, plaintext_size);
-        ocall_write_ramStore(index, (const char *)ciphertext.data(), (size_t)ciphertext.size());
+        if (!useLocalRamStore)
+        {
+            ocall_write_ramStore(map, index, (const char *)ciphertext.data(), (size_t)ciphertext.size());
+        }
+        else
+        {
+            localStore->Write(index, ciphertext);
+        }
     }
 
     void FetchPath(long long leaf)
@@ -578,7 +576,7 @@ private:
         }
         else
         {
-            ocall_initialize_ramStore(strtindex, endindex, (const char *)ciphertext.data(), (size_t)ciphertext.size());
+            ocall_initialize_ramStore(map, strtindex, endindex, (const char *)ciphertext.data(), (size_t)ciphertext.size());
         }
     }
 
@@ -601,7 +599,7 @@ private:
         {
             size_t readSize;
             char *tmp = new char[indexes.size() * storeBlockSize];
-            ocall_nread_ramStore(&readSize, indexes.size(), indexes.data(), tmp, indexes.size() * storeBlockSize);
+            ocall_nread_ramStore(&readSize, map, indexes.size(), indexes.data(), tmp, indexes.size() * storeBlockSize);
             for (unsigned int i = 0; i < indexes.size(); i++)
             {
                 block ciphertext(tmp + i * readSize, tmp + (i + 1) * readSize);
@@ -643,7 +641,7 @@ private:
                 }
                 if (min((int)(virtualStorage.size() - j * 10000), 10000) != 0)
                 {
-                    ocall_nwrite_ramStore(min((int)(virtualStorage.size() - j * 10000), 10000), indexes.data(), (const char *)tmp, cipherSize * min((int)(virtualStorage.size() - j * 10000), 10000));
+                    ocall_nwrite_ramStore(map, min((int)(virtualStorage.size() - j * 10000), 10000), indexes.data(), (const char *)tmp, cipherSize * min((int)(virtualStorage.size() - j * 10000), 10000));
                 }
                 delete tmp;
                 indexes.clear();
@@ -687,7 +685,13 @@ private:
     }
 
 public:
-    ORAM(long long maxSize, bytes<Key> oram_key, bool simulation, bool isEmptyMap) : key(oram_key)
+    unsigned long long RandomPath()
+    {
+        uint32_t val;
+        sgx_read_rand((unsigned char *)&val, 4);
+        return val % (maxOfRandom);
+    }
+    ORAM(bool m, long long maxSize, bytes<Key> oram_key, bool simulation, bool isEmptyMap) : key(oram_key), map(m)
     {
         depth = (int)(ceil(log2(maxSize)) - 1) + 1;
         maxOfRandom = (long long)(pow(2, depth));
@@ -714,12 +718,12 @@ public:
             }
             else
             {
-                ocall_setup_ramStore(blockCount, storeBlockSize);
+                ocall_setup_ramStore(map, blockCount, storeBlockSize);
             }
         }
         else
         {
-            ocall_setup_ramStore(depth, -1);
+            ocall_setup_ramStore(map, depth, -1);
         }
 
         maxHeightOfAVLTree = (int)floor(log2(blockCount)) + 1;
@@ -760,7 +764,6 @@ public:
 
         //        InitializeBuckets(0, bucketCount, bucket);
         InitializeBucketsOneByOne();
-        //    InitializeBucketsInBatch();
 
         ocall_stop_timer(&time, 687);
         printf("ORAM Initialization Time:%f\n", time);
@@ -784,314 +787,278 @@ public:
         }
     }
 
-    void InitializeBucketsInBatch()
-    {
-        int batchSize = 10000;
+    // ORAM(long long maxSize, bytes<Key> oram_key, vector<Node<T> *> *nodes) : key(oram_key)
+    // {
+    //     depth = (int)(ceil(log2(maxSize)) - 1) + 1;
+    //     maxOfRandom = (long long)(pow(2, depth));
+    //     AES::Setup();
+    //     bucketCount = maxOfRandom * 2 - 1;
+    //     INF = 9223372036854775807 - (bucketCount);
+    //     PERMANENT_STASH_SIZE = 90;
+    //     stash.preAllocate(PERMANENT_STASH_SIZE * 4);
+    //     printf("Number of leaves:%lld\n", maxOfRandom);
+    //     printf("depth:%lld\n", depth);
 
-        for (unsigned int j = 0; j <= bucketCount / batchSize; j++)
-        {
-            if (j % 10 == 0)
-            {
-                printf("%d/%d\n", j, bucketCount / batchSize);
-            }
-            char *tmp = new char[batchSize * storeBlockSize];
-            vector<long long> indexes;
-            size_t cipherSize = 0;
-            for (int i = 0; i < min((int)(bucketCount - j * batchSize), batchSize); i++)
-            {
-                Bucket bucket;
-                for (int z = 0; z < Z; z++)
-                {
-                    bucket[z].id = 0;
-                    bucket[z].data.resize(blockSize, 0);
-                }
-                block b = SerialiseBucket(bucket);
-                block ciphertext = AES::Encrypt(key, b, clen_size, plaintext_size);
-                indexes.push_back(j * batchSize + i);
-                std::memcpy(tmp + i * ciphertext.size(), ciphertext.data(), ciphertext.size());
-                cipherSize = ciphertext.size();
-            }
-            if (min((int)(bucketCount - j * batchSize), batchSize) != 0)
-            {
-                ocall_nwrite_ramStore(min((int)(bucketCount - j * batchSize), batchSize), indexes.data(), (const char *)tmp, cipherSize * min((int)(bucketCount - j * batchSize), batchSize));
-            }
-            delete tmp;
-            indexes.clear();
-        }
-    }
+    //     nextDummyCounter = INF;
+    //     blockSize = sizeof(Node<T>); // B
+    //     printf("block size is:%d\n", blockSize);
+    //     size_t blockCount = (size_t)(Z * bucketCount);
+    //     storeBlockSize = (size_t)(IV + AES::GetCiphertextLength((int)(Z * (blockSize))));
+    //     clen_size = AES::GetCiphertextLength((int)(blockSize)*Z);
+    //     plaintext_size = (blockSize)*Z;
+    //     ocall_setup_ramStore(blockCount, storeBlockSize);
+    //     maxHeightOfAVLTree = (int)floor(log2(blockCount)) + 1;
 
-    ORAM(long long maxSize, bytes<Key> oram_key, vector<Node<T> *> *nodes) : key(oram_key)
-    {
-        depth = (int)(ceil(log2(maxSize)) - 1) + 1;
-        maxOfRandom = (long long)(pow(2, depth));
-        AES::Setup();
-        bucketCount = maxOfRandom * 2 - 1;
-        INF = 9223372036854775807 - (bucketCount);
-        PERMANENT_STASH_SIZE = 90;
-        stash.preAllocate(PERMANENT_STASH_SIZE * 4);
-        printf("Number of leaves:%lld\n", maxOfRandom);
-        printf("depth:%lld\n", depth);
+    //     unsigned long long first_leaf = bucketCount / 2;
 
-        nextDummyCounter = INF;
-        blockSize = sizeof(Node<T>); // B
-        printf("block size is:%d\n", blockSize);
-        size_t blockCount = (size_t)(Z * bucketCount);
-        storeBlockSize = (size_t)(IV + AES::GetCiphertextLength((int)(Z * (blockSize))));
-        clen_size = AES::GetCiphertextLength((int)(blockSize)*Z);
-        plaintext_size = (blockSize)*Z;
-        ocall_setup_ramStore(blockCount, storeBlockSize);
-        maxHeightOfAVLTree = (int)floor(log2(blockCount)) + 1;
+    //     unsigned int j = 0;
+    //     Bucket *bucket = new Bucket();
 
-        unsigned long long first_leaf = bucketCount / 2;
+    //     int i;
+    //     printf("Setting Nodes Eviction ID\n");
+    //     for (i = 0; i < nodes->size(); i++)
+    //     {
+    //         (*nodes)[i]->evictionNode = (*nodes)[i]->pos + first_leaf;
+    //     }
 
-        unsigned int j = 0;
-        Bucket *bucket = new Bucket();
+    //     printf("Sorting\n");
+    //     ObliviousOperations<T>::bitonicSort(nodes);
 
-        int i;
-        printf("Setting Nodes Eviction ID\n");
-        for (i = 0; i < nodes->size(); i++)
-        {
-            (*nodes)[i]->evictionNode = (*nodes)[i]->pos + first_leaf;
-        }
+    //     vector<long long> indexes;
+    //     vector<Bucket> buckets;
 
-        printf("Sorting\n");
-        ObliviousOperations<T>::bitonicSort(nodes);
+    //     long long first_bucket_of_last_level = bucketCount / 2;
 
-        vector<long long> indexes;
-        vector<Bucket> buckets;
+    //     for (unsigned int i = 0; i < nodes->size(); i++)
+    //     {
+    //         if (i % 100000 == 0)
+    //         {
+    //             printf("Creating Buckets:%d/%d\n", i, nodes->size());
+    //         }
+    //         Node<T> *cureNode = (*nodes)[i];
+    //         long long curBucketID = (*nodes)[i]->evictionNode;
 
-        long long first_bucket_of_last_level = bucketCount / 2;
+    //         Block &curBlock = (*bucket)[j];
+    //         curBlock.data.resize(blockSize, 0);
+    //         block tmp = convertNodeToBlock(cureNode);
+    //         curBlock.id = Node<T>::conditional_select((unsigned long long)0, cureNode->index, cureNode->isDummy);
+    //         for (int k = 0; k < tmp.size(); k++)
+    //         {
+    //             curBlock.data[k] = Node<T>::conditional_select(curBlock.data[k], tmp[k], cureNode->isDummy);
+    //         }
+    //         delete cureNode;
+    //         j++;
 
-        for (unsigned int i = 0; i < nodes->size(); i++)
-        {
-            if (i % 100000 == 0)
-            {
-                printf("Creating Buckets:%d/%d\n", i, nodes->size());
-            }
-            Node<T> *cureNode = (*nodes)[i];
-            long long curBucketID = (*nodes)[i]->evictionNode;
+    //         if (j == Z)
+    //         {
+    //             indexes.push_back(curBucketID);
+    //             buckets.push_back((*bucket));
+    //             delete bucket;
+    //             bucket = new Bucket();
+    //             j = 0;
+    //         }
+    //     }
 
-            Block &curBlock = (*bucket)[j];
-            curBlock.data.resize(blockSize, 0);
-            block tmp = convertNodeToBlock(cureNode);
-            curBlock.id = Node<T>::conditional_select((unsigned long long)0, cureNode->index, cureNode->isDummy);
-            for (int k = 0; k < tmp.size(); k++)
-            {
-                curBlock.data[k] = Node<T>::conditional_select(curBlock.data[k], tmp[k], cureNode->isDummy);
-            }
-            delete cureNode;
-            j++;
+    //     for (unsigned int j = 0; j <= indexes.size() / 10000; j++)
+    //     {
+    //         char *tmp = new char[10000 * storeBlockSize];
+    //         size_t cipherSize = 0;
+    //         for (int i = 0; i < min((int)(indexes.size() - j * 10000), 10000); i++)
+    //         {
+    //             block b = SerialiseBucket(buckets[j * 10000 + i]);
+    //             block ciphertext = AES::Encrypt(key, b, clen_size, plaintext_size);
+    //             std::memcpy(tmp + i * ciphertext.size(), ciphertext.data(), ciphertext.size());
+    //             cipherSize = ciphertext.size();
+    //         }
+    //         if (min((int)(indexes.size() - j * 10000), 10000) != 0)
+    //         {
+    //             ocall_nwrite_ramStore(min((int)(indexes.size() - j * 10000), 10000), indexes.data() + j * 10000, (const char *)tmp, cipherSize * min((int)(indexes.size() - j * 10000), 10000));
+    //         }
+    //         delete tmp;
+    //     }
 
-            if (j == Z)
-            {
-                indexes.push_back(curBucketID);
-                buckets.push_back((*bucket));
-                delete bucket;
-                bucket = new Bucket();
-                j = 0;
-            }
-        }
+    //     indexes.clear();
+    //     buckets.clear();
 
-        for (unsigned int j = 0; j <= indexes.size() / 10000; j++)
-        {
-            char *tmp = new char[10000 * storeBlockSize];
-            size_t cipherSize = 0;
-            for (int i = 0; i < min((int)(indexes.size() - j * 10000), 10000); i++)
-            {
-                block b = SerialiseBucket(buckets[j * 10000 + i]);
-                block ciphertext = AES::Encrypt(key, b, clen_size, plaintext_size);
-                std::memcpy(tmp + i * ciphertext.size(), ciphertext.data(), ciphertext.size());
-                cipherSize = ciphertext.size();
-            }
-            if (min((int)(indexes.size() - j * 10000), 10000) != 0)
-            {
-                ocall_nwrite_ramStore(min((int)(indexes.size() - j * 10000), 10000), indexes.data() + j * 10000, (const char *)tmp, cipherSize * min((int)(indexes.size() - j * 10000), 10000));
-            }
-            delete tmp;
-        }
+    //     for (int i = 0; i < first_bucket_of_last_level; i++)
+    //     {
+    //         if (i % 100000 == 0)
+    //         {
+    //             printf("Adding Upper Levels Dummy Buckets:%d/%d\n", i, nodes->size());
+    //         }
+    //         for (int z = 0; z < Z; z++)
+    //         {
+    //             Block &curBlock = (*bucket)[z];
+    //             curBlock.id = 0;
+    //             curBlock.data.resize(blockSize, 0);
+    //         }
+    //         indexes.push_back(i);
+    //         buckets.push_back((*bucket));
+    //         delete bucket;
+    //         bucket = new Bucket();
+    //     }
 
-        indexes.clear();
-        buckets.clear();
+    //     for (unsigned int j = 0; j <= indexes.size() / 10000; j++)
+    //     {
+    //         char *tmp = new char[10000 * storeBlockSize];
+    //         size_t cipherSize = 0;
+    //         for (int i = 0; i < min((int)(indexes.size() - j * 10000), 10000); i++)
+    //         {
+    //             block b = SerialiseBucket(buckets[j * 10000 + i]);
+    //             block ciphertext = AES::Encrypt(key, b, clen_size, plaintext_size);
+    //             std::memcpy(tmp + i * ciphertext.size(), ciphertext.data(), ciphertext.size());
+    //             cipherSize = ciphertext.size();
+    //         }
+    //         if (min((int)(indexes.size() - j * 10000), 10000) != 0)
+    //         {
+    //             ocall_nwrite_ramStore(min((int)(indexes.size() - j * 10000), 10000), indexes.data() + j * 10000, (const char *)tmp, cipherSize * min((int)(indexes.size() - j * 10000), 10000));
+    //         }
+    //         delete tmp;
+    //     }
 
-        for (int i = 0; i < first_bucket_of_last_level; i++)
-        {
-            if (i % 100000 == 0)
-            {
-                printf("Adding Upper Levels Dummy Buckets:%d/%d\n", i, nodes->size());
-            }
-            for (int z = 0; z < Z; z++)
-            {
-                Block &curBlock = (*bucket)[z];
-                curBlock.id = 0;
-                curBlock.data.resize(blockSize, 0);
-            }
-            indexes.push_back(i);
-            buckets.push_back((*bucket));
-            delete bucket;
-            bucket = new Bucket();
-        }
+    //     delete bucket;
 
-        for (unsigned int j = 0; j <= indexes.size() / 10000; j++)
-        {
-            char *tmp = new char[10000 * storeBlockSize];
-            size_t cipherSize = 0;
-            for (int i = 0; i < min((int)(indexes.size() - j * 10000), 10000); i++)
-            {
-                block b = SerialiseBucket(buckets[j * 10000 + i]);
-                block ciphertext = AES::Encrypt(key, b, clen_size, plaintext_size);
-                std::memcpy(tmp + i * ciphertext.size(), ciphertext.data(), ciphertext.size());
-                cipherSize = ciphertext.size();
-            }
-            if (min((int)(indexes.size() - j * 10000), 10000) != 0)
-            {
-                ocall_nwrite_ramStore(min((int)(indexes.size() - j * 10000), 10000), indexes.data() + j * 10000, (const char *)tmp, cipherSize * min((int)(indexes.size() - j * 10000), 10000));
-            }
-            delete tmp;
-        }
+    //     for (int i = 0; i < PERMANENT_STASH_SIZE; i++)
+    //     {
+    //         Node<T> *tmp = new Node<T>();
+    //         tmp->index = nextDummyCounter;
+    //         tmp->isDummy = true;
+    //         stash.insert(tmp);
+    //     }
+    // }
 
-        delete bucket;
+    // ORAM(long long maxSize, bytes<Key> oram_key, vector<Node<T> *> *nodes, map<unsigned long long, unsigned long long> permutation) : key(oram_key)
+    // {
+    //     depth = (int)(ceil(log2(maxSize)) - 1) + 1;
+    //     maxOfRandom = (long long)(pow(2, depth));
+    //     AES::Setup();
+    //     bucketCount = maxOfRandom * 2 - 1;
+    //     INF = 9223372036854775807 - (bucketCount);
+    //     PERMANENT_STASH_SIZE = 90;
+    //     stash.preAllocate(PERMANENT_STASH_SIZE * 4);
+    //     printf("Number of leaves:%lld\n", maxOfRandom);
+    //     printf("depth:%lld\n", depth);
 
-        for (int i = 0; i < PERMANENT_STASH_SIZE; i++)
-        {
-            Node<T> *tmp = new Node<T>();
-            tmp->index = nextDummyCounter;
-            tmp->isDummy = true;
-            stash.insert(tmp);
-        }
-    }
+    //     nextDummyCounter = INF;
+    //     blockSize = sizeof(Node<T>); // B
+    //     printf("block size is:%d\n", blockSize);
+    //     size_t blockCount = (size_t)(Z * bucketCount);
+    //     storeBlockSize = (size_t)(IV + AES::GetCiphertextLength((int)(Z * (blockSize))));
+    //     clen_size = AES::GetCiphertextLength((int)(blockSize)*Z);
+    //     plaintext_size = (blockSize)*Z;
+    //     ocall_setup_ramStore(blockCount, storeBlockSize);
+    //     maxHeightOfAVLTree = (int)floor(log2(blockCount)) + 1;
 
-    ORAM(long long maxSize, bytes<Key> oram_key, vector<Node<T> *> *nodes, map<unsigned long long, unsigned long long> permutation) : key(oram_key)
-    {
-        depth = (int)(ceil(log2(maxSize)) - 1) + 1;
-        maxOfRandom = (long long)(pow(2, depth));
-        AES::Setup();
-        bucketCount = maxOfRandom * 2 - 1;
-        INF = 9223372036854775807 - (bucketCount);
-        PERMANENT_STASH_SIZE = 90;
-        stash.preAllocate(PERMANENT_STASH_SIZE * 4);
-        printf("Number of leaves:%lld\n", maxOfRandom);
-        printf("depth:%lld\n", depth);
+    //     unsigned long long first_leaf = bucketCount / 2;
 
-        nextDummyCounter = INF;
-        blockSize = sizeof(Node<T>); // B
-        printf("block size is:%d\n", blockSize);
-        size_t blockCount = (size_t)(Z * bucketCount);
-        storeBlockSize = (size_t)(IV + AES::GetCiphertextLength((int)(Z * (blockSize))));
-        clen_size = AES::GetCiphertextLength((int)(blockSize)*Z);
-        plaintext_size = (blockSize)*Z;
-        ocall_setup_ramStore(blockCount, storeBlockSize);
-        maxHeightOfAVLTree = (int)floor(log2(blockCount)) + 1;
+    //     unsigned int j = 0;
+    //     Bucket *bucket = new Bucket();
 
-        unsigned long long first_leaf = bucketCount / 2;
+    //     int i;
+    //     printf("Setting Nodes Positions\n");
+    //     for (i = 0; i < nodes->size(); i++)
+    //     {
+    //         (*nodes)[i]->pos = permutation[i];
+    //         (*nodes)[i]->evictionNode = first_leaf + (*nodes)[i]->pos;
+    //     }
+    //     printf("Adding Dummy Nodes\n");
+    //     unsigned long long neededDummy = ((bucketCount / 2) * Z);
+    //     for (; i < neededDummy; i++)
+    //     {
+    //         Node<T> *tmp = new Node<T>();
+    //         tmp->index = i + 1;
+    //         tmp->isDummy = true;
+    //         tmp->pos = permutation[i];
+    //         tmp->evictionNode = permutation[i] + first_leaf;
+    //         nodes->push_back(tmp);
+    //     }
 
-        unsigned int j = 0;
-        Bucket *bucket = new Bucket();
+    //     permutation.clear();
 
-        int i;
-        printf("Setting Nodes Positions\n");
-        for (i = 0; i < nodes->size(); i++)
-        {
-            (*nodes)[i]->pos = permutation[i];
-            (*nodes)[i]->evictionNode = first_leaf + (*nodes)[i]->pos;
-        }
-        printf("Adding Dummy Nodes\n");
-        unsigned long long neededDummy = ((bucketCount / 2) * Z);
-        for (; i < neededDummy; i++)
-        {
-            Node<T> *tmp = new Node<T>();
-            tmp->index = i + 1;
-            tmp->isDummy = true;
-            tmp->pos = permutation[i];
-            tmp->evictionNode = permutation[i] + first_leaf;
-            nodes->push_back(tmp);
-        }
+    //     printf("Sorting\n");
+    //     ObliviousOperations<T>::bitonicSort(nodes);
 
-        permutation.clear();
+    //     vector<long long> indexes;
+    //     vector<Bucket> buckets;
 
-        printf("Sorting\n");
-        ObliviousOperations<T>::bitonicSort(nodes);
+    //     long long first_bucket_of_last_level = bucketCount / 2;
 
-        vector<long long> indexes;
-        vector<Bucket> buckets;
+    //     for (int i = 0; i < first_bucket_of_last_level; i++)
+    //     {
+    //         if (i % 100000 == 0)
+    //         {
+    //             printf("Adding Upper Levels Dummy Buckets:%d/%d\n", i, nodes->size());
+    //         }
+    //         for (int z = 0; z < Z; z++)
+    //         {
+    //             Block &curBlock = (*bucket)[z];
+    //             curBlock.id = 0;
+    //             curBlock.data.resize(blockSize, 0);
+    //         }
+    //         indexes.push_back(i);
+    //         buckets.push_back((*bucket));
+    //         delete bucket;
+    //         bucket = new Bucket();
+    //     }
 
-        long long first_bucket_of_last_level = bucketCount / 2;
+    //     for (unsigned int i = 0; i < nodes->size(); i++)
+    //     {
+    //         if (i % 100000 == 0)
+    //         {
+    //             printf("Creating Buckets:%d/%d\n", i, nodes->size());
+    //         }
+    //         Node<T> *cureNode = (*nodes)[i];
+    //         long long curBucketID = (*nodes)[i]->evictionNode;
 
-        for (int i = 0; i < first_bucket_of_last_level; i++)
-        {
-            if (i % 100000 == 0)
-            {
-                printf("Adding Upper Levels Dummy Buckets:%d/%d\n", i, nodes->size());
-            }
-            for (int z = 0; z < Z; z++)
-            {
-                Block &curBlock = (*bucket)[z];
-                curBlock.id = 0;
-                curBlock.data.resize(blockSize, 0);
-            }
-            indexes.push_back(i);
-            buckets.push_back((*bucket));
-            delete bucket;
-            bucket = new Bucket();
-        }
+    //         Block &curBlock = (*bucket)[j];
+    //         curBlock.data.resize(blockSize, 0);
+    //         block tmp = convertNodeToBlock(cureNode);
+    //         curBlock.id = Node<T>::conditional_select((unsigned long long)0, cureNode->index, cureNode->isDummy);
+    //         for (int k = 0; k < tmp.size(); k++)
+    //         {
+    //             curBlock.data[k] = Node<T>::conditional_select(curBlock.data[k], tmp[k], cureNode->isDummy);
+    //         }
+    //         delete cureNode;
+    //         j++;
 
-        for (unsigned int i = 0; i < nodes->size(); i++)
-        {
-            if (i % 100000 == 0)
-            {
-                printf("Creating Buckets:%d/%d\n", i, nodes->size());
-            }
-            Node<T> *cureNode = (*nodes)[i];
-            long long curBucketID = (*nodes)[i]->evictionNode;
+    //         if (j == Z)
+    //         {
+    //             indexes.push_back(curBucketID);
+    //             buckets.push_back((*bucket));
+    //             delete bucket;
+    //             bucket = new Bucket();
+    //             j = 0;
+    //         }
+    //     }
 
-            Block &curBlock = (*bucket)[j];
-            curBlock.data.resize(blockSize, 0);
-            block tmp = convertNodeToBlock(cureNode);
-            curBlock.id = Node<T>::conditional_select((unsigned long long)0, cureNode->index, cureNode->isDummy);
-            for (int k = 0; k < tmp.size(); k++)
-            {
-                curBlock.data[k] = Node<T>::conditional_select(curBlock.data[k], tmp[k], cureNode->isDummy);
-            }
-            delete cureNode;
-            j++;
+    //     delete bucket;
 
-            if (j == Z)
-            {
-                indexes.push_back(curBucketID);
-                buckets.push_back((*bucket));
-                delete bucket;
-                bucket = new Bucket();
-                j = 0;
-            }
-        }
+    //     for (unsigned int j = 0; j <= indexes.size() / 10000; j++)
+    //     {
+    //         char *tmp = new char[10000 * storeBlockSize];
+    //         size_t cipherSize = 0;
+    //         for (int i = 0; i < min((int)(indexes.size() - j * 10000), 10000); i++)
+    //         {
+    //             block b = SerialiseBucket(buckets[j * 10000 + i]);
+    //             block ciphertext = AES::Encrypt(key, b, clen_size, plaintext_size);
+    //             std::memcpy(tmp + i * ciphertext.size(), ciphertext.data(), ciphertext.size());
+    //             cipherSize = ciphertext.size();
+    //         }
+    //         if (min((int)(indexes.size() - j * 10000), 10000) != 0)
+    //         {
+    //             ocall_nwrite_ramStore(min((int)(indexes.size() - j * 10000), 10000), indexes.data() + j * 10000, (const char *)tmp, cipherSize * min((int)(indexes.size() - j * 10000), 10000));
+    //         }
+    //         delete tmp;
+    //     }
 
-        delete bucket;
-
-        for (unsigned int j = 0; j <= indexes.size() / 10000; j++)
-        {
-            char *tmp = new char[10000 * storeBlockSize];
-            size_t cipherSize = 0;
-            for (int i = 0; i < min((int)(indexes.size() - j * 10000), 10000); i++)
-            {
-                block b = SerialiseBucket(buckets[j * 10000 + i]);
-                block ciphertext = AES::Encrypt(key, b, clen_size, plaintext_size);
-                std::memcpy(tmp + i * ciphertext.size(), ciphertext.data(), ciphertext.size());
-                cipherSize = ciphertext.size();
-            }
-            if (min((int)(indexes.size() - j * 10000), 10000) != 0)
-            {
-                ocall_nwrite_ramStore(min((int)(indexes.size() - j * 10000), 10000), indexes.data() + j * 10000, (const char *)tmp, cipherSize * min((int)(indexes.size() - j * 10000), 10000));
-            }
-            delete tmp;
-        }
-
-        for (int i = 0; i < PERMANENT_STASH_SIZE; i++)
-        {
-            Node<T> *tmp = new Node<T>();
-            tmp->index = nextDummyCounter;
-            tmp->isDummy = true;
-            stash.insert(tmp);
-        }
-    }
+    //     for (int i = 0; i < PERMANENT_STASH_SIZE; i++)
+    //     {
+    //         Node<T> *tmp = new Node<T>();
+    //         tmp->index = nextDummyCounter;
+    //         tmp->isDummy = true;
+    //         stash.insert(tmp);
+    //     }
+    // }
 
     ~ORAM()
     {
@@ -1107,6 +1074,12 @@ public:
     bool evictBuckets = false; // is used for AVL calls. It should be set the same as values in default values
     //-----------------------------------------------------------
 
+    // If this is not a dummy, then we read bid stored on lastlast leaf into the
+    // stash. We then clone the input and set its position to be the newleaf
+    // (for writing back...), Then we create a new node to be the destination of
+    // finding the correct block. We then come through the stash
+
+    // On read I copy the node from the stash to my res. On write I copy the input to a new dummy node.
     Node<T> *ReadWrite(Bid bid, Node<T> *inputnode, unsigned long long lastLeaf, unsigned long long newLeaf, bool isRead, bool isDummy, bool isIncRead)
     {
         if (bid == 0)
@@ -1158,10 +1131,6 @@ public:
             for (int k = 0; k < res->value.size(); k++)
             {
                 res->value[k] = Node<T>::conditional_select(node->value[k], res->value[k], choice);
-            }
-            for (int k = 0; k < res->dum.size(); k++)
-            {
-                res->dum[k] = Node<T>::conditional_select(node->dum[k], res->dum[k], choice);
             }
             res->evictionNode = Node<T>::conditional_select(node->evictionNode, res->evictionNode, choice);
             res->height = Node<T>::conditional_select(node->height, res->height, choice);
@@ -1260,10 +1229,6 @@ public:
             {
                 res->value[k] = Node<T>::conditional_select(node->value[k], res->value[k], choice);
             }
-            for (int k = 0; k < res->dum.size(); k++)
-            {
-                res->dum[k] = Node<T>::conditional_select(node->dum[k], res->dum[k], choice);
-            }
             res->evictionNode = Node<T>::conditional_select(node->evictionNode, res->evictionNode, choice);
             res->height = Node<T>::conditional_select(node->height, res->height, choice);
             res->leftPos = Node<T>::conditional_select(node->leftPos, res->leftPos, choice);
@@ -1347,10 +1312,6 @@ public:
             {
                 res->value[k] = Node<T>::conditional_select(node->value[k], res->value[k], choice);
             }
-            for (int k = 0; k < res->dum.size(); k++)
-            {
-                res->dum[k] = Node<T>::conditional_select(node->dum[k], res->dum[k], choice);
-            }
             res->evictionNode = Node<T>::conditional_select(node->evictionNode, res->evictionNode, choice);
             res->height = Node<T>::conditional_select(node->height, res->height, choice);
             res->leftPos = Node<T>::conditional_select(node->leftPos, res->leftPos, choice);
@@ -1384,7 +1345,7 @@ public:
         return res;
     }
 
-    Node<T> *ReadWrite(Bid bid, Node<T> *inputnode, unsigned long long lastLeaf, unsigned long long newLeaf, bool isRead, bool isDummy, std::array<byte_t, 16> value, bool overwrite, bool isIncRead)
+    Node<T> *ReadWrite(Bid bid, Node<T> *inputnode, unsigned long long lastLeaf, unsigned long long newLeaf, bool isRead, bool isDummy, array<byte_t, sizeof(T)> value, bool overwrite, bool isIncRead)
     {
         if (bid == 0)
         {
@@ -1438,10 +1399,6 @@ public:
             for (int k = 0; k < res->value.size(); k++)
             {
                 res->value[k] = Node<T>::conditional_select(node->value[k], res->value[k], choice);
-            }
-            for (int k = 0; k < res->dum.size(); k++)
-            {
-                res->dum[k] = Node<T>::conditional_select(node->dum[k], res->dum[k], choice);
             }
             res->evictionNode = Node<T>::conditional_select(node->evictionNode, res->evictionNode, choice);
             res->height = Node<T>::conditional_select(node->height, res->height, choice);

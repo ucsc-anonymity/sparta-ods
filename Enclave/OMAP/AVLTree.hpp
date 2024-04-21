@@ -378,10 +378,6 @@ private:
             {
                 res->value[k] = Node<T>::conditional_select(node->value[k], res->value[k], choice);
             }
-            for (int k = 0; k < res->dum.size(); k++)
-            {
-                res->dum[k] = Node<T>::conditional_select(node->dum[k], res->dum[k], choice);
-            }
             res->evictionNode = Node<T>::conditional_select(node->evictionNode, res->evictionNode, choice);
             res->modified = Node<T>::conditional_select(true, res->modified, choice);
             res->height = Node<T>::conditional_select(node->height, res->height, choice);
@@ -459,61 +455,61 @@ private:
     }
 
 public:
-    AVLTree(long long maxSize, bytes<Key> secretkey, Bid &rootKey, unsigned long long &rootPos, map<Bid, vector<byte_t>> *pairs, map<unsigned long long, unsigned long long> *permutation)
-    {
-        int depth = (int)(ceil(log2(maxSize)) - 1) + 1;
-        maxOfRandom = (long long)(pow(2, depth));
-        times.push_back(vector<double>());
-        times.push_back(vector<double>());
-        times.push_back(vector<double>());
-        times.push_back(vector<double>());
+    // AVLTree(long long maxSize, bytes<Key> secretkey, Bid &rootKey, unsigned long long &rootPos, map<Bid, vector<byte_t>> *pairs, map<unsigned long long, unsigned long long> *permutation)
+    // {
+    //     int depth = (int)(ceil(log2(maxSize)) - 1) + 1;
+    //     maxOfRandom = (long long)(pow(2, depth));
+    //     times.push_back(vector<double>());
+    //     times.push_back(vector<double>());
+    //     times.push_back(vector<double>());
+    //     times.push_back(vector<double>());
 
-        vector<Node<T> *> nodes;
-        for (auto pair : (*pairs))
-        {
-            Node<T> *node = newNode(pair.first, pair.second);
-            nodes.push_back(node);
-        }
+    //     vector<Node<T> *> nodes;
+    //     for (auto pair : (*pairs))
+    //     {
+    //         Node<T> *node = newNode(pair.first, pair.second);
+    //         nodes.push_back(node);
+    //     }
 
-        int nextPower2 = (int)pow(2, ceil(log2(nodes.size())));
-        for (int i = (int)nodes.size(); i < nextPower2; i++)
-        {
-            Bid bid = INF + i;
-            Node<T> *node = newNode(bid);
-            node->isDummy = false;
-            nodes.push_back(node);
-        }
+    //     int nextPower2 = (int)pow(2, ceil(log2(nodes.size())));
+    //     for (int i = (int)nodes.size(); i < nextPower2; i++)
+    //     {
+    //         Bid bid = INF + i;
+    //         Node<T> *node = newNode(bid);
+    //         node->isDummy = false;
+    //         nodes.push_back(node);
+    //     }
 
-        bitonicSort(&nodes);
-        double t;
-        printf("Creating BST of %d Nodes\n", nodes.size());
-        ocall_start_timer(53);
-        sortedArrayToBST(&nodes, 0, nodes.size() - 2, rootPos, rootKey, permutation);
-        ocall_stop_timer(&t, 53);
-        times[0].push_back(t);
-        printf("Inserting in ORAM\n");
+    //     bitonicSort(&nodes);
+    //     double t;
+    //     printf("Creating BST of %d Nodes\n", nodes.size());
+    //     ocall_start_timer(53);
+    //     sortedArrayToBST(&nodes, 0, nodes.size() - 2, rootPos, rootKey, permutation);
+    //     ocall_stop_timer(&t, 53);
+    //     times[0].push_back(t);
+    //     printf("Inserting in ORAM\n");
 
-        double gp;
-        int size = (int)nodes.size();
-        for (int i = size; i < maxOfRandom * Z; i++)
-        {
-            Bid bid;
-            bid = INF + i;
-            Node<T> *node = newNode(bid);
-            node->isDummy = true;
-            node->pos = (*permutation)[permutationIterator];
-            permutationIterator++;
-            nodes.push_back(node);
-        }
-        ocall_start_timer(53);
-        oram = new ORAM<T>(maxSize, secretkey, &nodes);
-        ocall_stop_timer(&t, 53);
-        times[1].push_back(t);
-    }
+    //     double gp;
+    //     int size = (int)nodes.size();
+    //     for (int i = size; i < maxOfRandom * Z; i++)
+    //     {
+    //         Bid bid;
+    //         bid = INF + i;
+    //         Node<T> *node = newNode(bid);
+    //         node->isDummy = true;
+    //         node->pos = (*permutation)[permutationIterator];
+    //         permutationIterator++;
+    //         nodes.push_back(node);
+    //     }
+    //     ocall_start_timer(53);
+    //     oram = new ORAM<T>(maxSize, secretkey, &nodes);
+    //     ocall_stop_timer(&t, 53);
+    //     times[1].push_back(t);
+    // }
 
     AVLTree(long long maxSize, bytes<Key> secretkey, bool isEmptyMap)
     {
-        oram = new ORAM<T>(maxSize, secretkey, false, isEmptyMap);
+        oram = new ORAM<T>(true, maxSize, secretkey, false, isEmptyMap);
         int depth = (int)(ceil(log2(maxSize)) - 1) + 1;
         maxOfRandom = (long long)(pow(2, depth));
         times.push_back(vector<double>());
@@ -521,6 +517,7 @@ public:
         times.push_back(vector<double>());
         times.push_back(vector<double>());
     }
+
     virtual ~AVLTree()
     {
         delete oram;
@@ -600,7 +597,7 @@ public:
         bool leftNodeisNull = true;
         Node<T> *rightNode = new Node<T>();
         bool rightNodeisNull = true;
-        std::array<byte_t, 16> garbage;
+        std::array<byte_t, sizeof(T)> garbage;
         bool childDirisLeft = false;
 
         unsigned long long newRLPos = RandomPath();
@@ -683,7 +680,7 @@ public:
         std::fill(garbage.begin(), garbage.end(), 0);
         std::copy(value.begin(), value.end(), garbage.begin());
 
-        for (int i = 0; i < 16; i++)
+        for (int i = 0; i < garbage.size(); i++)
         {
             node->value[i] = Bid::conditional_select(garbage[i], node->value[i], cond1 && cond4);
         }
@@ -1138,7 +1135,7 @@ public:
         bool leftNodeisNull = true;
         Node<T> *rightNode = new Node<T>();
         bool rightNodeisNull = true;
-        std::array<byte_t, 16> garbage;
+        std::array<byte_t, sizeof(T)> garbage;
         bool childDirisLeft = false;
 
         unsigned long long newRLPos = RandomPath();
@@ -1675,7 +1672,7 @@ public:
         Bid dumyID = oram->nextDummyCounter;
         Node<T> *tmpDummyNode = new Node<T>();
         tmpDummyNode->isDummy = true;
-        std::array<byte_t, 16> resVec;
+        std::array<byte_t, sizeof(T)> resVec;
         Node<T> *head;
         int dummyState = 0;
         int upperBound = (int)(1.44 * oram->depth);
@@ -1712,7 +1709,7 @@ public:
             newPos = Node<T>::conditional_select(rnd2, newPos, !cond1 && cond2);
             newPos = Node<T>::conditional_select(rnd2, newPos, !cond1 && !cond2 && cond3);
 
-            for (int i = 0; i < 16; i++)
+            for (int i = 0; i < resVec.size(); i++)
             {
                 resVec[i] = Bid::conditional_select(head->value[i], resVec[i], !cond1);
             }
@@ -1723,7 +1720,7 @@ public:
             delete head;
         } while (oram->readCnt <= upperBound);
         delete tmpDummyNode;
-        for (int i = 0; i < 16; i++)
+        for (int i = 0; i < resVec.size(); i++)
         {
             res[i] = Bid::conditional_select(resVec[i], (byte_t)0, found);
         }

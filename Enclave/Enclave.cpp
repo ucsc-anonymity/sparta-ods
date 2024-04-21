@@ -18,12 +18,37 @@ void printf(const char *fmt, ...)
     ocall_print_string(buf);
 }
 
-double ecall_main(int max_size)
+int ecall_main(int max_size)
 {
-    Dassl dassl(5, 10);
+    Dassl dassl(128, 512);
     dassl.registerUser(1);
+    dassl.processSend(1, 420);
+    dassl.processSend(1, 128);
+    // // dassl.processSend(1, 420);
+    vector<message> one(8);
+    dassl.processFetch(1, one);
+    for (auto &item : one)
+    {
+        printf("%llu\n", item);
+    }
+    printf("\n");
 
-    return 0.0;
+    // bytes<Key> tmpkey{0};
+    // ORAM<MessageNode> *oram = new ORAM<MessageNode>(16, tmpkey, false, true);
+    // MessageNode message = {420, 69};
+
+    // Bid id(5);
+    // Node<MessageNode> *node = new Node<MessageNode>(id, message.serialize(), 8);
+
+    // oram->ReadWrite(id, node, 0, 8, false, false, false);
+
+    // Node<MessageNode> *writeNode = oram->ReadWrite(id, node, 8, 10, true, false, false);
+
+    // vector<byte_t> val(writeNode->value.begin(), writeNode->value.end());
+    // MessageNode n = MessageNode::deserialize(val);
+    // printf("%llu, %llu\n", n.m, n.next);
+
+    return 0;
 
     // dassl.registerUser(2);
 

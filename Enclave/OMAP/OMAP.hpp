@@ -25,10 +25,10 @@ public:
         rootKey = 0;
     }
 
-    OMAP(int maxSize, bytes<Key> secretKey, map<Bid, vector<byte_t>> *pairs, map<unsigned long long, unsigned long long> *permutation)
-    {
-        treeHandler = new AVLTree<T>(maxSize, secretKey, rootKey, rootPos, pairs, permutation);
-    }
+    // OMAP(int maxSize, bytes<Key> secretKey, map<Bid, vector<byte_t>> *pairs, map<unsigned long long, unsigned long long> *permutation)
+    // {
+    //     treeHandler = new AVLTree<T>(maxSize, secretKey, rootKey, rootPos, pairs, permutation);
+    // }
 
     OMAP(int maxSize, Bid rootBid, long long rootPos, bytes<Key> secretKey)
     {

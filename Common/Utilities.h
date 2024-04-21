@@ -13,18 +13,18 @@
 
 using namespace std;
 
-class Utilities {
+class Utilities
+{
 private:
-    static int parseLine(char* line);
+    static int parseLine(char *line);
+
 public:
     Utilities();
     static std::string XOR(std::string value, std::string key);
     static void startTimer(int id);
     static double stopTimer(int id);
-    static std::map<int, std::chrono::time_point<std::chrono::high_resolution_clock> > m_begs;
-    static std::array<uint8_t, 16> convertToArray(std::string value);
+    static std::map<int, std::chrono::time_point<std::chrono::high_resolution_clock>> m_begs;
     virtual ~Utilities();
 };
 
 #endif /* UTILITIES_H */
-

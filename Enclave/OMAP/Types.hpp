@@ -49,7 +49,9 @@ typedef unsigned long long message;
 struct MessageNode
 {
     message m;
-    unsigned long long next;
+    unsigned long long next_id;
+    unsigned long long next_pos;
+    std::array<byte_t, 248> dummy; // enough for a 256 byte message (248 + m)
     std::vector<byte_t> serialize()
     {
         const char *s = reinterpret_cast<const char *>(this);
@@ -70,8 +72,10 @@ struct MessageNode
 
 struct UserRecord
 {
-    unsigned long long next_fetch;
-    unsigned long long next_send;
+    unsigned long long next_fetch_id;
+    unsigned long long next_fetch_pos;
+    unsigned long long next_send_id;
+    unsigned long long next_send_pos;
 
     std::vector<byte_t> serialize()
     {

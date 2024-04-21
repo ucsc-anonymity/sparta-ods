@@ -15,12 +15,12 @@ class Dassl
     unsigned long long num_users;
     unsigned long long num_messages;
     OMAP<UserRecord> *user_store;
-    map<unsigned long long, MessageNode> *message_store;
+    ORAM<MessageNode> *message_store;
 
 public:
     Dassl(unsigned long long n, unsigned long long m);
     ~Dassl();
     void registerUser(unsigned long long user_id);
-    // void processSend(unsigned long long receiver_id, message m);
-    // void processFetch(unsigned long long receiver_id, vector<message> &result);
+    void processSend(unsigned long long receiver_id, message m);
+    void processFetch(unsigned long long receiver_id, vector<message> &result);
 };
