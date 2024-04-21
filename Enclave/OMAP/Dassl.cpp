@@ -1,6 +1,17 @@
 #include "Dassl.hpp"
 #include "ORAM.hpp"
 
+unsigned long long conditional_select(unsigned long long a, unsigned long long b, int choice)
+{
+    unsigned long long one = 1;
+    return (~((unsigned long long)choice - one) & a) | ((unsigned long long)(choice - one) & b);
+}
+
+static bool CTeq(unsigned long long a, unsigned long long b)
+{
+    return !(a ^ b);
+}
+
 Dassl::Dassl(unsigned long long n, unsigned long long m)
 {
     num_users = n;
@@ -55,7 +66,7 @@ void Dassl::processSend(unsigned long long receiver_id, message m)
     // location (oldleaf, 0, gets overwritten with a random value), which
     // fetches this random path from the ORAM. The written node will have
     // send_idx as it's path location, when it gets evicted back to the ORAM.
-    message_store->ReadWrite(send_id, node, 0, curr_send_pos, false, false, false);
+    message_store->ReadWrite(send_id, node, 0, curr_send_pos, false, true, false);
     delete node;
 }
 
@@ -69,26 +80,47 @@ void Dassl::processFetch(unsigned long long receiver, vector<message> &result)
     unsigned long long curr_pos = user_rec.next_fetch_pos;
 
     Node<MessageNode> *res = new Node<MessageNode>();
-    // this is oblivious because the result size is public information.
-    for (int i = 0; i < result.capacity(); i++)
+    message m;
+    for (int i = 0; i < result.capacity(); i++) // capacity is public info.
     {
-        message m;
-        if (curr_id != user_rec.next_send_id) // this is not oblivious... BAD
-        {
-            // newleaf does not matter because I will only read each message once.
-            Bid cid(curr_id);
-            res = message_store->ReadWrite(cid, res, curr_pos, 0, true, false, false);
-            vector<byte_t> value(res->value.begin(), res->value.end());
-            MessageNode node = MessageNode::deserialize(value);
-            m = node.m;
-            curr_id = node.next_id;
-            curr_pos = node.next_pos;
-        }
-        else
-        {
-            m = 0;
-        }
+        bool end = CTeq(curr_id, user_rec.next_send_id);
+
+        Bid cid(curr_id);
+        res = message_store->ReadWrite(cid, res, curr_pos, 0, true, end, false);
+        vector<byte_t> value(res->value.begin(), res->value.end());
+        MessageNode node = MessageNode::deserialize(value);
+        m = conditional_select(0, node.m, end);
+        curr_id = conditional_select(curr_id, node.next_id, end);
+        curr_pos = conditional_select(curr_pos, node.next_pos, end);
         result[i] = m;
+
+        // message m;
+        // if (curr_id != user_rec.next_send_id) // this is not oblivious... BAD
+        // {
+        //     // newleaf does not matter because I will only read each message once.
+        //     Bid cid(curr_id);
+        //     res = message_store->ReadWrite(cid, res, curr_pos, 0, true, false, false);
+        //     vector<byte_t> value(res->value.begin(), res->value.end());
+        //     MessageNode node = MessageNode::deserialize(value);
+        //     m = node.m;
+        //     curr_id = node.next_id;
+        //     curr_pos = node.next_pos;
+        // }
+        // else
+        // {
+        //     Bid cid(curr_id);
+        //     res = message_store->ReadWrite(cid, res, curr_pos, 0, true, true, false);
+        //     vector<byte_t> value(res->value.begin(), res->value.end());
+        //     MessageNode node = MessageNode::deserialize(value);
+        //     m = 0;
+        //     curr_id = curr_id;
+        //     curr_pos = curr_pos;
+        // }
+        // result[i] = m;
     }
+
+    user_rec.next_fetch_id = curr_id;
+    user_rec.next_fetch_pos = curr_pos;
+    user_store->insert(id, user_rec.serialize());
     delete res;
 }

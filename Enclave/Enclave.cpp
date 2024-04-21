@@ -20,10 +20,12 @@ void printf(const char *fmt, ...)
 
 int ecall_main(int max_size)
 {
-    Dassl dassl(128, 512);
+    // Dassl dassl(1048567, 2097152);
+    Dassl dassl(512, 2048);
     dassl.registerUser(1);
-    dassl.processSend(1, 420);
-    dassl.processSend(1, 128);
+    for (int i = 0; i < 10; i++)
+        dassl.processSend(1, i + 1);
+
     // // dassl.processSend(1, 420);
     vector<message> one(8);
     dassl.processFetch(1, one);
@@ -32,6 +34,12 @@ int ecall_main(int max_size)
         printf("%llu\n", item);
     }
     printf("\n");
+
+    dassl.processFetch(1, one);
+    for (auto &item : one)
+    {
+        printf("%llu\n", item);
+    }
 
     // bytes<Key> tmpkey{0};
     // ORAM<MessageNode> *oram = new ORAM<MessageNode>(16, tmpkey, false, true);
