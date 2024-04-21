@@ -2,7 +2,7 @@
 #include <string>
 #include "../Enclave.h"
 #include "AES.hpp"
-#include "OMAP.h"
+#include "OMAP.hpp"
 #include "ORAM.hpp"
 #include "Types.hpp"
 
@@ -14,7 +14,7 @@ class Dassl
 {
     unsigned long long num_users;
     unsigned long long num_messages;
-    OMAP *user_store;
+    OMAP<UserRecord> *user_store;
     map<unsigned long long, MessageNode> *message_store;
 
 public:

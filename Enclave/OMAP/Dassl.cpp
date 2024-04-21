@@ -6,7 +6,7 @@ Dassl::Dassl(unsigned long long n, unsigned long long m)
     num_messages = m;
 
     bytes<Key> tmpkey{0};
-    user_store = new OMAP(n, tmpkey);
+    user_store = new OMAP<UserRecord>(n, tmpkey);
     message_store = new std::map<unsigned long long, MessageNode>();
 }
 
@@ -24,13 +24,9 @@ void Dassl::registerUser(unsigned long long user_id)
     UserRecord n = {next_send, next_send};
     Bid id(user_id);
     user_store->insert(id, n.serialize());
-    // vector<byte_t> r = user_store->find(id);
-    // UserRecord d = UserRecord::deserialize(r);
-    // printf("%llu, %llu", d.next_fetch, d.next_send);
-    // for (const auto &pair : *user_store)
-    // {
-    //     printf("%llx: %llx %llx\n", pair.first, pair.second.next_fetch_idx, pair.second.next_send_idx);
-    // }
+    vector<byte_t> r = user_store->find(id);
+    UserRecord d = UserRecord::deserialize(r);
+    printf("%llu, %llu", d.next_fetch, d.next_send);
 }
 
 // void Dassl::processSend(unsigned long long receiver, message m)
