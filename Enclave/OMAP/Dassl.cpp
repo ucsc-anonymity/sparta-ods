@@ -86,37 +86,15 @@ void Dassl::processFetch(unsigned long long receiver, vector<message> &result)
         bool end = CTeq(curr_id, user_rec.next_send_id);
 
         Bid cid(curr_id);
+        // end ? dummy : real
         res = message_store->ReadWrite(cid, res, curr_pos, 0, true, end, false);
         vector<byte_t> value(res->value.begin(), res->value.end());
         MessageNode node = MessageNode::deserialize(value);
         m = conditional_select(0, node.m, end);
+        // end ? curr_id : next
         curr_id = conditional_select(curr_id, node.next_id, end);
         curr_pos = conditional_select(curr_pos, node.next_pos, end);
         result[i] = m;
-
-        // message m;
-        // if (curr_id != user_rec.next_send_id) // this is not oblivious... BAD
-        // {
-        //     // newleaf does not matter because I will only read each message once.
-        //     Bid cid(curr_id);
-        //     res = message_store->ReadWrite(cid, res, curr_pos, 0, true, false, false);
-        //     vector<byte_t> value(res->value.begin(), res->value.end());
-        //     MessageNode node = MessageNode::deserialize(value);
-        //     m = node.m;
-        //     curr_id = node.next_id;
-        //     curr_pos = node.next_pos;
-        // }
-        // else
-        // {
-        //     Bid cid(curr_id);
-        //     res = message_store->ReadWrite(cid, res, curr_pos, 0, true, true, false);
-        //     vector<byte_t> value(res->value.begin(), res->value.end());
-        //     MessageNode node = MessageNode::deserialize(value);
-        //     m = 0;
-        //     curr_id = curr_id;
-        //     curr_pos = curr_pos;
-        // }
-        // result[i] = m;
     }
 
     user_rec.next_fetch_id = curr_id;
