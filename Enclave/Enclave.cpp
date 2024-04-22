@@ -6,7 +6,7 @@
 #include "sgx_tcrypto.h"
 #include "string.h"
 #include "OMAP/OMAP.hpp"
-#include "OMAP/Dassl.hpp"
+#include "OMAP/OMQ.hpp"
 
 void printf(const char *fmt, ...)
 {
